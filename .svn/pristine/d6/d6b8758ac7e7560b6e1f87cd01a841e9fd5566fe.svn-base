@@ -1,0 +1,300 @@
+<?php
+
+use yii\helpers\Html;
+use yii\helpers\Url;
+use yii\grid\GridView;
+use yii\bootstrap\Modal;
+use kartik\dialog\Dialog;
+use mdm\admin\components\Helper;
+/* @var $searchModel frontend\models\MaterialsSearch */
+/* @var $dataProvider yii\data\ActiveDataProvider */
+
+$this->title = Yii::t('material', 'Materials');
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="materials-index">
+
+    <h1><?= Html::encode($this->title) ?></h1>
+    <?php  echo $this->render('_search', ['model' => $searchModel]); ?>
+
+    <p>
+        <?php //echo Html::a(Yii::t('material', 'Create Materials'), ['create'], ['class' => 'btn btn-success']); ?>
+        <?= Html::a(Yii::t('material', 'Create Materials'), ['/modify-material/create'], ['class' => 'btn btn-success']) ?>
+    </p>
+
+    <div class="box table-responsive">
+        <?= GridView::widget([
+            'tableOptions' => ['class' => 'table table-striped table-bordered table-hover'],
+            'dataProvider' => $dataProvider,
+            'filterModel' => $searchModel,
+            'formatter' => ['class' => 'yii\i18n\Formatter','nullDisplay' => '','datetimeFormat' => 'php:Y-m-d H:i:s',],
+            'columns' => [
+                ['class' => 'yii\grid\SerialColumn'],
+                //一供智车料号
+                [
+                    'attribute' => 'zc_part_number',
+                    'value' => 'zc_part_number',
+                    'visible' => $searchModel->zc_part_number_toggle == 0,
+                ],
+                //ID
+                [
+                    'attribute' => 'material_id',
+                    'value' => 'material_id',
+                    'visible' => 0,
+                ],
+                //装配等级
+                [
+                    'attribute' => 'assy_level',
+                    'value' => 'assy_level',
+                    'visible' => $searchModel->assy_level_toggle == 0,
+                ],
+                //一供料号
+                [
+                    'attribute' => 'mfr_part_number',
+                    'format'=>'raw',
+                    'value' => function($model){
+                            return Html::a($model->mfr_part_number,'#', ['data-toggle'=>'modal','data-target'=>'#mtrview-modal','class'=>'material-view1']);
+                    },
+                    'visible' => $searchModel->mfr_part_number_toggle == 0,
+                ],
+                //  'description',
+                [
+                    'attribute' => 'part_name',
+                    'value' => 'part_name',
+                    'visible' => $searchModel->part_name_toggle == 0,
+                ],
+                [
+                    'attribute' => 'description',
+                    'value' => 'description',
+                    'visible' => $searchModel->description_toggle == 0,
+                ],
+                [
+                    'attribute' => 'unit',
+                    'value' => 'unit',
+                    'visible' => $searchModel->unit_toggle == 0,
+                ],
+                //一供厂家
+                [
+                    'attribute' => 'mfr1',
+                    'label'=>Yii::t('material', 'Manufacturer'),
+                    'value' => function($model){
+                        return empty($model->manufacturer1)?"":$model->manufacturer1->name;
+                    },
+                    'visible' => $searchModel->manufacturer_toggle == 0,
+                ],
+                //二供
+                [
+                    'attribute' => 'mfrPartNo2',
+                    'label'=>Yii::t('material', 'Second Manufacturer Part Number'),
+                    'format'=>'raw',
+                    'value' => function($model){
+                        if(!empty($model->manufacturer2)){
+                            return Html::a($model->manufacturer2->mfr_part_number,'#',
+                                ['data-toggle'=>'modal','data-target'=>'#mtrview-modal','class'=>'material-view','index'=>$model->manufacturer2->material_id]);
+                        }
+                    },
+                    'visible' => $searchModel->manufacturer2_id_toggle == 0,
+                ],
+                //三供
+                [
+                    'attribute' => 'mfrPartNo3',
+                    'label'=>Yii::t('material', 'third Manufacturer Part Number'),
+                    'format'=>'raw',
+                    'value' => function($model){
+                        if(!empty($model->manufacturer3)){
+                            return Html::a($model->manufacturer3->mfr_part_number,'#',
+                                ['data-toggle'=>'modal','data-target'=>'#mtrview-modal','class'=>'material-view','index'=>$model->manufacturer3->material_id]);
+                        }
+                    },
+                    'visible' => $searchModel->manufacturer3_id_toggle == 0,
+                ],
+                //四供
+                [
+                    'attribute' => 'mfrPartNo4',
+                    'label'=>Yii::t('material', 'fourth Manufacturer Part Number'),
+                    'format'=>'raw',
+                    'value' => function($model){
+                        if(!empty($model->manufacturer4)){
+                            return Html::a($model->manufacturer4->mfr_part_number,'#',
+                                ['data-toggle'=>'modal','data-target'=>'#mtrview-modal','class'=>'material-view','index'=>$model->manufacturer4->material_id]);
+                        }
+                    },
+                    'visible' => $searchModel->manufacturer4_id_toggle == 0,
+                ],
+                //  '采购等级',
+                [
+                    'attribute' => 'purchase_level',
+                    'value' => 'purchase_level',
+                    'visible' => $searchModel->purchase_level_toggle == 0,
+                ],
+                //规格书
+                [
+                    'attribute' => 'datasheet',
+                    'format'=>'raw',
+                    'value' => function($model)
+                    {
+                        if(!empty($model->datasheetAttachments)){
+                            if(Helper::checkRoute('/attachments/download-dlg'))
+                                return Html::a("Y", "#",
+                                ['data-toggle'=>'modal','data-target'=>'#download-modal','class'=>'data-download','index'=>$model->material_id]);
+                            else
+                                return Html::a("Y", "#",['class'=>'forbidden']);
+                        }
+                        return "N";
+                    },
+                    'visible' => $searchModel->datasheet_toggle == 0,
+                ],
+
+                //  'pcb_footprint',
+                [
+                    'attribute' => 'pcb_footprint',
+                    'value' => 'pcb_footprint',
+                    'visible' => $searchModel->pcb_footprint_toggle == 0,
+                ],
+                //更新时间
+                [
+                    'attribute' => 'date_entered',
+                    'value' => 'date_entered',
+                    'visible' => $searchModel->date_entered_toggle == 0,
+                ],
+                //物料级别
+                [
+                    'attribute' => 'vehicle_standard',
+                    'value' => function ($model) {
+                        return key_exists($model->vehicle_standard,$model::VEHICLE_STANDARD)?$model::VEHICLE_STANDARD[$model->vehicle_standard]:"";
+                    },
+                    'filter'=>$searchModel::VEHICLE_STANDARD,
+                    "filterInputOptions" => ['style'=>"width: 90px",'class'=>'form-control'],//让列宽为90
+                    'visible' => $searchModel->vehicle_standard_toggle == 0,
+                ],
+                //零件类型
+                [
+                    'attribute' => 'partType1',
+                    'label'=>Yii::t('material', 'Part Type'),
+                    'value' => function($model){
+                        return $model->partType->name;
+                    },
+                    'visible' => $searchModel->part_type_toggle == 0,
+                ],
+                //零件大小值
+                [
+                    'attribute' => 'value',
+                    'value' => 'value',
+                    'visible' => $searchModel->value_toggle == 0,
+                ],
+                //零件原理图
+                [
+                    'attribute' => 'schematic_part',
+                    'value' => 'schematic_part',
+                    'visible' => $searchModel->schematic_part_toggle == 0,
+                ],
+                //单价
+                [
+                    'attribute' => 'price',
+                    'value' => 'price',
+                    'visible' => $searchModel->price_toggle == 0,
+                ],
+                //采购推荐等级
+                [
+                    'attribute' => 'recommend_purchase',
+                    'value' => function ($model) {
+                        return $model::RECOMMEND_PURCHASE[$model->recommend_purchase];
+                    },
+                    'visible' => $searchModel->recommend_purchase_toggle == 0,
+                ],
+                //最小包装量
+                [
+                    'attribute' => 'minimum_packing_quantity',
+                    'value' => 'minimum_packing_quantity',
+                    'visible' => $searchModel->minimum_packing_quantity_toggle == 0,
+                ],
+                //交期
+                [
+                    'attribute' => 'lead_time',
+                    'value' => 'lead_time',
+                    'visible' => $searchModel->lead_time_toggle == 0,
+                ],
+                //操作
+                [
+                    'class' => 'yii\grid\ActionColumn',
+                    'template' => '{view} {/modify-material/update} {/attachments/view}',
+                    'buttons' => [
+                        '/attachments/view' => function ($url) {
+                            return Html::a('<span class="glyphicon glyphicon-paperclip"></span>', $url, ['title' => '附件']);
+                        },
+                        '/modify-material/update'=>function ($url, $model, $key){
+                            return Html::a('<span class="glyphicon glyphicon-pencil"></span>', $url.'&material=1',
+                                ['title' => '更新', 'onclick'=>"materialUpdate($key);return false;"]);
+                        }
+                    ],
+                ],
+            ],
+        ]); ?>
+    </div>
+</div>
+<?php
+//模态对话框下载datasheet
+Modal::begin([
+    'id' => 'download-modal',
+    'header' => '<h3 class="modal-title">'.Yii::t('common','Download').'</h3>'.'<h6>（点击文件即可下载）</h6>',
+    'footer' => '<a href="#" class="btn btn-primary" data-dismiss="modal">Close</a>',
+]);
+Modal::end();
+//模态对话框查看物料详情
+Modal::begin([
+    'id' => 'mtrview-modal',
+    'header' => '<h3 class="modal-title">查看</h3>',
+    'footer' => '<a href="#" class="btn btn-primary" data-dismiss="modal">Close</a>',
+]);
+Modal::end();
+$requestUpdateUrl = Url::toRoute('/attachments/download-dlg?id=');
+$materialView = Url::toRoute('/materials/view');
+$Js = <<<JS
+$('.forbidden').on('click',function() {
+    krajeeDialog.alert('您没有执行此操作的权限');
+})
+
+$('.data-download').on('click', function () {
+    var id = $(this).attr('index');
+    $.get('{$requestUpdateUrl}'+id, { id: $(this).closest('tr').data('key') },
+        function (data) {
+            $('.modal-body').html(data);
+        } 
+    );
+});
+
+$('.material-view1').on('click', function () {
+    $.get('{$materialView}', { id: $(this).closest('tr').data('key'),modal:1 },
+        function (data) {
+            $('.modal-body').html(data);
+        } 
+    );
+});
+
+$('.material-view').on('click', function () {
+    var id = $(this).attr('index');
+    $.get('{$materialView}', { id: id,modal:1 },
+        function (data) {
+            $('.modal-body').html(data);
+        } 
+    );
+});
+JS;
+$this->registerJs($Js);
+
+//检测这颗料是否可以被更新
+$checkMaterial = Url::toRoute('/modify-material/check-material');
+$updateMaterial = Url::toRoute('/modify-material/update?id=');
+echo Dialog::widget();
+$Js = <<<JS
+function materialUpdate(key) {
+    $.get('$checkMaterial',{id:key},function(json) {
+        if(json.status == 0)
+            krajeeDialog.alert(json.message);
+        else
+            window.location.href='$updateMaterial'+key+'&material=1';
+    },'json');
+}
+JS;
+$this->registerJs($Js,\yii\web\View::POS_BEGIN);
+?>

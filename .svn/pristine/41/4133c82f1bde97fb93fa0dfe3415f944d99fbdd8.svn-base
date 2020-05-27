@@ -1,0 +1,146 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\DetailView;
+use kartik\grid\GridView;
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\Ecr */
+
+$this->title = Yii::t('common','View');
+$this->params['breadcrumbs'][] = ['label' => Yii::t('common', 'ECR'), 'url' => ['index']];
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="row">
+<div class="col-md-9">
+<div class="ecr-view">
+
+    <h1>
+        <?php
+        echo Html::encode($this->title);
+
+        if(!empty($model->ecn))
+                echo Html::a('查看相关ECN', ['/ecn/view','id'=>$model->ecn->id],
+                    ['class' => 'btn btn-success','style'=>'margin-left:200px']);
+        ?>
+    </h1>
+
+
+
+    <?= DetailView::widget([
+        'model' => $model,
+        'template' => '<tr><th width="130px">{label}</th><td>{value}</td></tr>',
+        'attributes' => [
+            'serial_number',
+            [
+                'attribute'=>'project_id',
+                'value'=>$model->projects->name
+            ],
+            [
+                'attribute'=>'project_process_id',
+                'value'=>$model->projectProcess->name
+            ],
+            [
+                'attribute'=>'bom_id',
+                'value'=>$model->boms->zc_part_number
+            ],
+            'reason:ntext',
+            'detail:ntext',
+            [
+                'attribute'=>'created_at',
+                'value'=>date('Y-m-d H:i:s',$model->created_at)
+            ],
+            [
+                'attribute'=>'updated_at',
+                'value'=>date('Y-m-d H:i:s',$model->updated_at)
+            ],
+            [
+                'attribute'=>'user',
+                'value'=>$model->tasks->user->username
+            ],
+            [
+                'attribute'=>'status',
+                'value'=>\frontend\models\Tasks::STATUS_COMMIT[$model->tasks->status]
+            ],
+        ],
+    ]) ?>
+
+</div>
+<br><br><br>
+<div class="row">
+    <div class="col-md-6">
+    <h1>审批情况</h1>
+    <?= GridView::widget([
+        'dataProvider' => $dataProvider,
+        'formatter' => ['class' => 'yii\i18n\Formatter','nullDisplay' => ''],
+        'striped' => true,
+        'export' => false,
+        'toggleData' => false,
+        'hover'=>true,
+        'bordered'=>true,
+        'panel' => ['type' => 'success', 'heading' => "审批清单", 'footer' => false],
+        'columns' => [
+            [
+                'attribute'=>'pid',
+                'group'=>true,  // enable grouping,
+                'groupedRow'=>true,                    // move grouped column to a single grouped row
+                'groupOddCssClass'=>'kv-group-even',  // configure odd group cell css class
+                'groupEvenCssClass'=>'kv-group-even', // configure even group cell css class
+            ],
+            [
+                'attribute' => 'user_id',
+                'label'=>'审批人',
+            ],
+            [
+                'attribute' => 'status',
+                'label'=>'审批状态',
+                'value'=>function($model){
+                    if(is_null($model['status']))
+                        return '流程没到';
+                    return \frontend\models\UserTask::STATUS_APPROVE[$model['status']];
+                }
+            ],
+            'remark',
+//            [
+//                'attribute' => 'updated_at',
+//                'label'=>'审批时间',
+//                'format' => ['date','php:Y-m-d H:i:s']
+//            ],
+        ],
+    ]); ?>
+    </div>
+</div>
+<br><br><br>
+<div>
+    <h1>附件</h1>
+    <?= GridView::widget([
+        'dataProvider' => $dataAttachment,
+        'columns' => [
+            ['class' => 'yii\grid\SerialColumn'],
+            [
+                'attribute' => 'name',
+                'value' => function($model) {
+                    $filename = $model->name;
+                    return Html::a($filename, ['ecr/download', 'pathFile' => $model->path, 'filename' => $filename]);
+                },
+                'format' => 'raw',
+            ],
+            [
+                'attribute' => 'updated_at',
+                'value' => function($model)
+                {
+                    return date('Y-m-d H:i:s',$model->updated_at);
+                }
+            ],
+        ],
+    ]); ?>
+</div>
+</div>
+    <div class="col-md-2"></div>
+</div>
+<?php
+require('../views/layouts/view-approve.php');
+
+?>
+
+

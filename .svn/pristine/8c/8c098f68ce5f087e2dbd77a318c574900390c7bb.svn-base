@@ -1,0 +1,583 @@
+<?php
+/**
+ * @copyright Copyright &copy; Kartik Visweswaran, Krajee.com, 2015 - 2017
+ * @package   yii2-tree-manager
+ * @version   1.0.8
+ */
+
+use kartik\form\ActiveForm;
+use kartik\tree\Module;
+use kartik\tree\TreeView;
+use kartik\tree\models\Tree;
+use yii\helpers\ArrayHelper;
+use yii\helpers\Html;
+use yii\helpers\Json;
+use yii\web\View;
+use \kartik\grid\GridView;
+use yii\bootstrap\Modal;
+
+
+/**
+ * @var View       $this
+ * @var Tree       $node
+ * @var ActiveForm $form
+ * @var array      $formOptions
+ * @var string     $keyAttribute
+ * @var string     $nameAttribute
+ * @var string     $iconAttribute
+ * @var string     $iconTypeAttribute
+ * @var string     $iconsList
+ * @var string     $action
+ * @var array      $breadcrumbs
+ * @var array      $nodeAddlViews
+ * @var mixed      $currUrl
+ * @var boolean    $showIDAttribute
+ * @var boolean    $showFormButtons
+ * @var boolean    $allowNewRoots
+ * @var string     $nodeSelected
+ * @var array      $params
+ * @var string     $keyField
+ * @var string     $nodeView
+ * @var string     $noNodesMessage
+ * @var boolean    $softDelete
+ * @var string     $modelClass
+ */
+?>
+<?php
+/**
+ * SECTION 1: Initialize node view params & setup helper methods.
+ */
+?>
+<?php
+extract($params);
+$session = Yii::$app->has('session') ? Yii::$app->session : null;
+
+// parse parent key
+if ($noNodesMessage) {
+    $parentKey = '';
+} elseif (empty($parentKey)) {
+    $parent = $node->parents(1)->one();
+    $parentKey = empty($parent) ? '' : Html::getAttributeValue($parent, $keyAttribute);
+}
+
+// tree manager module
+$module = TreeView::module();
+// active form instance
+$form = ActiveForm::begin(['action' => $action, 'options' => $formOptions]);
+
+// helper function to show alert
+$showAlert = function ($type, $body = '', $hide = true) {
+    $class = "alert alert-{$type}";
+    if ($hide) {
+        $class .= ' hide';
+    }
+    return Html::tag('div', '<div>' . $body . '</div>', ['class' => $class]);
+};
+
+// helper function to render additional view content
+$renderContent = function ($part) use ($nodeAddlViews, $params, $form) {
+    if (empty($nodeAddlViews[$part])) {
+        return '';
+    }
+    $p = $params;
+    $p['form'] = $form;
+    return $this->render($nodeAddlViews[$part], $p);
+};
+?>
+<?php //echo $form->field($node, 'remark')->textInput(['maxlength' => true]); ?>
+
+<?php
+/**
+ * SECTION 2: Initialize hidden attributes. In case you are extending this and creating your own view, it is mandatory
+ * to set all these hidden inputs as defined below.
+ */
+?>
+<?= Html::hiddenInput('treeNodeModify', $node->isNewRecord) ?>
+<?= Html::hiddenInput('parentKey', $parentKey) ?>
+<?= Html::hiddenInput('currUrl', $currUrl) ?>
+<?= Html::hiddenInput('modelClass', $modelClass) ?>
+<?= Html::hiddenInput('nodeSelected', $nodeSelected) ?>
+
+<?php
+/**
+ * SECTION 3: Hash signatures to prevent data tampering. In case you are extending this and creating your own view, it
+ * is mandatory to include this section below.
+ */
+?>
+<?php
+$security = Yii::$app->security;
+$id = $node->isNewRecord ? null : $node->$keyAttribute;
+
+// save signature
+$dataToHash = !!$node->isNewRecord . $currUrl . $modelClass;
+echo Html::hiddenInput('treeSaveHash', $security->hashData($dataToHash, $module->treeEncryptSalt));
+
+// manage signature
+if (array_key_exists('depth', $breadcrumbs) && $breadcrumbs['depth'] === null) {
+    $breadcrumbs['depth'] = '';
+}
+$icons = is_array($iconsList) ? array_values($iconsList) : $iconsList;
+$dataToHash = $modelClass . !!$isAdmin . !!$softDelete . !!$showFormButtons . !!$showIDAttribute .
+    $currUrl . $nodeView . $nodeSelected . Json::encode($formOptions) .
+    Json::encode($nodeAddlViews) . Json::encode($icons) . Json::encode($breadcrumbs);
+echo Html::hiddenInput('treeManageHash', $security->hashData($dataToHash, $module->treeEncryptSalt));
+
+// remove signature
+$dataToHash = $modelClass . $softDelete;
+echo Html::hiddenInput('treeRemoveHash', $security->hashData($dataToHash, $module->treeEncryptSalt));
+
+// move signature
+$dataToHash = $modelClass . $allowNewRoots;
+echo Html::hiddenInput('treeMoveHash', $security->hashData($dataToHash, $module->treeEncryptSalt));
+?>
+
+<?php if (!$noNodesMessage): ?>
+    <?php
+    $isAdmin = ($isAdmin == true || $isAdmin === "true"); // admin mode flag
+    $inputOpts = [];                                      // readonly/disabled input options for node
+    $flagOptions = ['class' => 'kv-parent-flag'];         // node options for parent/child
+
+    /**
+     * the primary key input field
+     */
+    if ($showIDAttribute) {
+        $options = ['readonly' => true];
+        if ($node->isNewRecord) {
+            $options['value'] = Yii::t('kvtree', '(new)');
+        }
+        $keyField = $form->field($node, $keyAttribute)->textInput($options);
+    } else {
+        $keyField = Html::activeHiddenInput($node, $keyAttribute);
+    }
+
+    /**
+     * initialize for create or update
+     */
+    $depth = ArrayHelper::getValue($breadcrumbs, 'depth');
+    $glue = ArrayHelper::getValue($breadcrumbs, 'glue');
+    $activeCss = ArrayHelper::getValue($breadcrumbs, 'activeCss');
+    $untitled = ArrayHelper::getValue($breadcrumbs, 'untitled');
+    $name = $node->getBreadcrumbs($depth, $glue, $activeCss, $untitled);
+    if ($node->isNewRecord && !empty($parentKey) && $parentKey !== TreeView::ROOT_KEY) {
+        /**
+         * @var Tree $modelClass
+         * @var Tree $parent
+         */
+
+        $depth = empty($breadcrumbsDepth) ? null : intval($breadcrumbsDepth) - 1;
+        if ($depth === null || $depth > 0) {
+            $parent = $modelClass::findOne($parentKey);
+            $name = $parent->getBreadcrumbs($depth, $glue, null) . $glue . $name;
+        }
+    }
+    if ($node->isReadonly()) {
+        $inputOpts['readonly'] = true;
+    }
+    if ($node->isDisabled()) {
+        $inputOpts['disabled'] = true;
+    }
+    if ($node->isLeaf()) {
+        $flagOptions['disabled'] = true;
+    }
+
+    ?>
+
+    <div class="kv-detail-heading">
+        <?php if($node->lvl!=3): ?>
+        <div class="kv-detail-crumbs" style="float:left;">
+            <?= $name ?>&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;&ensp;
+        </div>
+        <div style="margin-top: 3px;font-size:20px;">
+            <?php echo "（完成数量比：".$percent[1]."/".$percent[2]."）"?>
+        </div>
+        <div class="progress"  style="background-color:#e0e1d7;margin-top: 9px;width:100%;float:left;">
+            <div class="progress-bar progress-bar-success" role="progressbar" style="width: <?= $percent[0] ?>%;">
+                <?= $percent[0] ?>%
+            </div>
+        </div>
+        <div class="clearfix"></div>
+        <?php endif; ?>
+    </div>
+
+
+    <div class="kv-treeview-alerts">
+        <?php
+
+        if ($session && $session->hasFlash('success')) {
+            echo $showAlert('success', $session->getFlash('success'), false);
+        } else {
+            echo $showAlert('success');
+        }
+        if ($session && $session->hasFlash('error')) {
+            echo $showAlert('danger', $session->getFlash('error'), false);
+        } else {
+            echo $showAlert('danger');
+        }
+        echo $showAlert('warning');
+        echo $showAlert('info');
+        ?>
+    </div>
+
+    <?php
+    echo $renderContent(Module::VIEW_PART_1);
+    ?>
+
+    <?php if ($iconsList == 'text' || $iconsList == 'none'): ?>
+        <?php if ($showIDAttribute): ?>
+            <div class="row">
+                <div class="col-sm-4">
+                    <?= $keyField ?>
+                </div>
+                <div class="col-sm-8">
+                    <?= $form->field($node, $nameAttribute)->textInput($inputOpts) ?>
+                </div>
+            </div>
+        <?php else: ?>
+    <!--给文件下的物料部分-->
+            <?php
+            if($node->lvl == 3) {
+                $nodeName = $node->name;
+
+                echo GridView::widget([
+                    'dataProvider' => $dataMtr,
+                    'filterModel'=>$searchModel,
+                    'panel' => [
+                        'type' => GridView::TYPE_PRIMARY,
+                        'heading'=>$node->name,
+                        'before'=>"<div style='float:left;margin-top: 6px;font-size: 17px;'>完成数量比：".$percent[1]."/".$percent[2]."&emsp;&emsp;&emsp;&emsp;</div>".
+                            '<div class="progress"  style="background-color:#e0e1d7;margin-top: 9px;width:70%;float:left;">
+                            <div class="progress-bar progress-bar-success" role="progressbar" style="width:'.$percent[0].'%;">
+                            '.$percent[0].'%</div></div><div class="clearfix"></div>',
+                    ],
+                    //'filterUrl'=>'/node/songwei',
+                    'formatter' => ['class' => 'yii\i18n\Formatter', 'nullDisplay' => ''],
+                    'hover' => true,
+                    'toolbar' =>  [
+                        [
+                            'content' =>
+                                Html::a('下载列表','/projects/download-percent?id='.$node->id,
+                                    ['class'=>'btn btn-info','target'=>'_blank']),
+                            'options' => ['class' => 'btn-group mr-2']
+                        ],
+                    ],
+                    'columns' => [
+                        [
+                            'class' => 'yii\grid\SerialColumn',
+                            'headerOptions'=>['style'=>'width:2%'],
+                        ],
+                        [
+                            'attribute' => 'remark',
+                            'header' => '智车料号',
+                            'headerOptions'=>['style'=>'width:11%'],
+                        ],
+                        [
+                            'attribute' => 'file_class_name',
+                            'header' => '物料名称/描述',
+                            'headerOptions'=>['style'=>'width:28%'],
+                            'value'=>function ($model){
+                                return empty($model->file_class_name)?$model->desc:$model->file_class_name;
+                            }
+                        ],
+                        [
+                            'attribute' => 'version',
+                            'headerOptions'=>['style'=>'width:7%'],
+                        ],
+                        [
+                            'attribute' => 'name',
+                            'header' => '附件名',
+                            'headerOptions'=>['style'=>'width:37%'],
+                            'format' => 'raw',
+                            'value' => function ($model, $value) {
+                                return Html::a($model->name,
+                                    [
+                                        'modify-material/download',
+                                        'pathFile' => $model->path,
+                                        'filename' => $model->name
+                                    ]);
+                            },
+                        ],
+                        [
+                            'header' => '查看历史版本',
+                            'format' => 'raw',
+                            'headerOptions'=>['style'=>'width:9%'],
+                            'value' => function ($model) use ($nodeName) {
+                                if ($model->version > 1)
+                                    return Html::a('<span class="fa fa-eye"></span>', '#',
+                                        [
+                                            'data-toggle' => "modal", 'data-target' => "#mtr-file-detail", 'class' => "mtr-file-dialog",
+                                            'mtrid' => $model->material_id, 'nodename' => $nodeName
+                                        ]);
+                                return '';
+                            },
+
+                        ],
+                        [
+                            'header' => '上传',
+                            'headerOptions'=>['style'=>'width:5%'],
+                            'format' => 'raw',
+                            'value' => function ($model) use ($nodeName)  {
+                                return Html::button('<span class="fa fa-upload"></span>',
+                                    ['class'=>'btn_upload','mtrid' => $model->material_id, 'nodename' => $nodeName]);
+                            },
+                        ],
+                    ]
+                ]);
+            }
+            Modal::begin([
+                'id' => 'mtr-file-detail',
+                'header' => '<h3 class="modal-title">物料文件下载查看'.'</h3>',
+                'footer' => '<a href="#" class="btn btn-primary" data-dismiss="modal">Close</a>',
+                'size'=>"modal-lg",
+            ]);
+            Modal::end();
+
+            ?>
+    <!--给文件下的物料部分-->
+
+
+
+        <?php endif; ?>
+    <?php else: ?>
+        <div class="row">
+            <div class="col-sm-6">
+                <?= $keyField ?>
+                <?= Html::activeHiddenInput($node, $iconTypeAttribute) ?>
+                <?= $form->field($node, $nameAttribute)->textArea(['rows' => 3] + $inputOpts) ?>
+            </div>
+            <div class="col-sm-6">
+                <?= /** @noinspection PhpUndefinedMethodInspection */
+                $form->field($node, $iconAttribute)->multiselect($iconsList, [
+                    'item' => function ($index, $label, $name, $checked, $value) use ($inputOpts) {
+                        if ($index == 0 && $value == '') {
+                            $checked = true;
+                            $value = '';
+                        }
+                        return '<div class="radio">' . Html::radio($name, $checked, [
+                                'value' => $value,
+                                'label' => $label,
+                                'disabled' => !empty($inputOpts['readonly']) || !empty($inputOpts['disabled'])
+                            ]) . '</div>';
+                    },
+                    'selector' => 'radio',
+                ]) ?>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?= $renderContent(Module::VIEW_PART_2) ?>
+    <?php
+$Js = <<<JS
+//下载功能
+//$("#download").on('click',function() {
+//    var divDetail = $('#treeID-detail');
+//    var cnt = divDetail.html();
+//    divDetail.html('');
+//    divDetail.addClass('kv-loading');
+//    $.post('/projects/download-percent',{},function(obj) {
+//        if(obj == 1)
+//            divDetail.removeClass('kv-loading');
+//            divDetail.html(cnt);
+//    });
+//});
+
+//查看历史版本的对话框
+$('.mtr-file-dialog').on('click', function () {
+    var mtrid = $(this).attr('mtrid');
+    var nodename = $(this).attr('nodename');
+    $.post('/projects/mtr-single-file-detail', {mtrid:mtrid,nodename:nodename },
+        function (data) {
+            $('.modal-body').html(data);
+        } 
+    );
+});
+
+//上传附件
+$('.btn_upload').on('click',function() {
+    var mtrid = $(this).attr('mtrid');
+    var nodename = $(this).attr('nodename');
+    var param = '?mtrid='+mtrid+'&file_class_name='+nodename;
+    $.post('/projects/check-mtr-file-upload',{mtrid:mtrid,nodename:nodename},
+        function (obj)
+        {
+            if(obj.status == 0){
+                krajeeDialog.alert(obj.message);
+            }else{
+                window.location.href='/projects/mtr-file-upload'+param;
+            }
+        }
+    ,'json');  
+});
+
+///////////////////////////////////
+/*
+点击分页功能:变成AJAX请求
+nodeData['data']:是点击节点时得到的数据。请求页面时要用到的节点数据
+ */
+$('ul[class="pagination"] a').on('click',function() {
+    var url = $(this).attr('href');
+    var divDetail = $('#treeID-detail');
+    divDetail.html('');
+    divDetail.addClass('kv-loading');
+    $.post(url+'&'+nodeData['data'],{},
+        function(obj) {
+            divDetail.removeClass('kv-loading');
+            divDetail.html(obj['out']);
+        },
+    'json');    
+    return false;
+});
+/*
+点击排序功能:变成AJAX请求
+nodeData['data']:是点击节点时得到的数据。请求页面时要用到的节点数据
+ */
+$('thead a').on('click',function() {
+    var url = $(this).attr('href');
+    var divDetail = $('#treeID-detail');
+    divDetail.html('');
+    divDetail.addClass('kv-loading');
+    $.post(url+'&'+nodeData['data'],{},
+        function(obj) {
+            divDetail.removeClass('kv-loading');
+            divDetail.html(obj['out']);
+        },
+    'json');    
+    return false;
+});
+//搜索//
+
+var inputRemark = $('input[name="ProjectMaterial[remark]"]');
+var inputFileClassName = $('input[name="ProjectMaterial[file_class_name]"]');
+
+
+var inputChangeFun = function() {
+    var url = $('ul[class="pagination"] li[class="active"] a').attr('href');
+    if(url == undefined)//没有分页时
+        url = nodeData['url'];
+    
+    if(url.indexOf('&id=') == -1){//说明没有节点参数，得加上
+        url = url +'&'+nodeData['data']; 
+    }
+    url = url+'&ProjectMaterial[remark]='+$('input[name="ProjectMaterial[remark]"]').val()+
+        '&ProjectMaterial[file_class_name]='+$('input[name="ProjectMaterial[file_class_name]"]').val();
+    var divDetail = $('#treeID-detail');
+    document.getElementById('treeID-detail').innerHTML="";
+    divDetail.addClass('kv-loading');
+    $.post(url,{},
+        function(obj) {
+            divDetail.removeClass('kv-loading');
+            document.getElementById('treeID-detail').innerHTML=obj['out'];
+            var inputRemark = $('input[name="ProjectMaterial[remark]"]');
+            var inputFileClassName = $('input[name="ProjectMaterial[file_class_name]"]');
+            
+            inputRemark.on('change',inputChangeFun);
+            inputFileClassName.on('change',inputChangeFun);
+            inputRemark.on('keydown',function(e) {
+              e = e || event;
+              if(e.keyCode == 13){
+                inputChangeFun(); 
+              }
+            });
+            inputFileClassName.on('keydown',function(e) {
+              e = e || event;
+              if(e.keyCode == 13){
+                inputChangeFun(); 
+              }
+            });
+            /*
+            点击分页功能:变成AJAX请求
+            nodeData['data']:是点击节点时得到的数据。请求页面时要用到的节点数据
+             */
+            $('ul[class="pagination"] a').on('click',function() {
+                var url = $(this).attr('href');
+                var divDetail = $('#treeID-detail');
+                divDetail.html('');
+                divDetail.addClass('kv-loading');
+                $.post(url+'&'+nodeData['data'],{},
+                    function(obj) {
+                        divDetail.removeClass('kv-loading');
+                        divDetail.html(obj['out']);
+                    },
+                'json');    
+                return false;
+            });
+            /*
+            点击排序功能:变成AJAX请求
+            nodeData['data']:是点击节点时得到的数据。请求页面时要用到的节点数据
+             */
+            $('thead a').on('click',function() {
+                var url = $(this).attr('href');
+                var divDetail = $('#treeID-detail');
+                divDetail.html('');
+                divDetail.addClass('kv-loading');
+                $.post(url+'&'+nodeData['data'],{},
+                    function(obj) {
+                        divDetail.removeClass('kv-loading');
+                        divDetail.html(obj['out']);
+                    },
+                'json');    
+                return false;
+            });
+            
+            //查看历史版本的对话框
+            $('.mtr-file-dialog').on('click', function () {
+                var mtrid = $(this).attr('mtrid');
+                var nodename = $(this).attr('nodename');
+                $.post('/projects/mtr-single-file-detail', {mtrid:mtrid,nodename:nodename },
+                    function (data) {
+                        $('.modal-body').html(data);
+                    } 
+                );
+            });
+            
+            //上传附件
+            $('.btn_upload').on('click',function() {
+                var mtrid = $(this).attr('mtrid');
+                var nodename = $(this).attr('nodename');
+                var param = '?mtrid='+mtrid+'&file_class_name='+nodename;
+                $.post('/projects/check-mtr-file-upload',{mtrid:mtrid,nodename:nodename},
+                    function (obj)
+                    {
+                        if(obj.status == 0){
+                            krajeeDialog.alert(obj.message);
+                        }else{
+                            window.location.href='/projects/mtr-file-upload'+param;
+                        }
+                    }
+                ,'json');  
+            });
+
+        },
+    'json');
+    return false;
+};
+
+inputRemark.on('keydown',function(e) {
+  e = e || event;
+  if(e.keyCode == 13){
+    inputChangeFun(); 
+  }
+});
+
+inputFileClassName.on('keydown',function(e) {
+  e = e || event;
+  if(e.keyCode == 13){
+    inputChangeFun(); 
+  }
+});
+
+inputRemark.on('change',inputChangeFun);
+inputFileClassName.on('change',inputChangeFun);
+
+/////////////////////////////
+
+JS;
+    $this->registerJs($Js);
+
+    ?>
+
+<?php endif; ?>
+
+<?php ActiveForm::end() ?>
+
+<?= $noNodesMessage ? $noNodesMessage : $renderContent(Module::VIEW_PART_5) ?>
+

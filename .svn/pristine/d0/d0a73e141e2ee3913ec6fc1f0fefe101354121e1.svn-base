@@ -1,0 +1,140 @@
+<?php
+
+use yii\helpers\Html;
+use kartik\grid\GridView;
+use kartik\editable\Editable;
+use frontend\models\UserTask;
+use yii\helpers\Url;
+use frontend\models\Tasks;
+use kartik\popover\PopoverX;
+
+/* @var $this yii\web\View */
+/* @var $searchModel frontend\models\UserTaskSearch */
+/* @var $dataProvider yii\data\ActiveDataProvider */
+
+$this->title = Yii::t('common', '个人审批');
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="user-task-index">
+
+    <h1><?= Html::encode($this->title) ?></h1>
+    <?= GridView::widget([
+        'dataProvider' => $dataProvider,
+        //'filterModel' => $searchModel,
+        'striped' => true,
+        'export' => false,
+        'toggleData' => false,
+        'hover'=>true,
+        'bordered'=>true,
+        'panel' => ['type' => 'success', 'heading' => "个人任务清单"],
+
+        'columns' => [
+            ['class' => 'yii\grid\SerialColumn'],
+            [
+                'attribute' => 'task_id',
+                'label'=>'任务名',
+                'format'=>'raw',
+                'value' => function ($model)
+                {
+                    if($model->tasks->type == Tasks::TASK_TYPE_MATERIAL)//说明是物料的ID
+                    {
+                        return Html::a($model->tasks->name.$model->tasks->modifyMaterial->mfr_part_number,
+                            Url::toRoute('/modify-material/view?id='.$model->tasks->modifyMaterial->id),[]);
+                    }
+                    else if($model->tasks->type == Tasks::TASK_TYPE_ECR)
+                    {
+                        return Html::a($model->tasks->name.$model->tasks->ecr->serial_number,
+                            Url::toRoute('/ecr/view?id='.$model->tasks->ecr->id),[]);
+                    }
+                    else if($model->tasks->type == Tasks::TASK_TYPE_ECN)
+                    {
+                        return Html::a($model->tasks->name.$model->tasks->ecn->serial_number,
+                            Url::toRoute('/ecn/view?id='.$model->tasks->ecn->id),[]);
+                    }
+                }
+            ],
+            [
+                'class'=>'kartik\grid\EditableColumn',
+                'attribute' => 'remark',
+                'header'=>'任务备注',
+                //  'width'=>'250px',
+                'editableOptions' => function ($model) {
+                    $taskRemark = $model->tasks->remark;
+                    return [
+                        'placement' => PopoverX::ALIGN_BOTTOM_RIGHT,
+                        'size' => 'md',
+                        'inputType' => Editable::INPUT_TEXTAREA,
+                        'displayValue' => $taskRemark? (strlen($taskRemark)<=30? $taskRemark : substr($taskRemark,0,30).'...') : '',
+                        'options' => ['rows' => 5],
+                        'submitOnEnter' => false,
+                        'readonly' => true,
+                        'buttonsTemplate' => '',
+                    ];
+                }
+            ],
+            [
+                'attribute' => 'user_id',
+                'label'=>'作者',
+                'value'=>"tasks.user.username"
+            ],
+            [
+                'attribute' => 'dateApprove',
+                'label'=>'提交时间',
+                'value' => function ($model){
+                    return date("Y-m-d H:i:s",$model->tasks->date);
+                },//搜索功能不好使
+                //'filter'=>Html::input('text', 'UserTaskSearch[task]', $searchModel->date, ['class'=>'form-control col-lg-6']),
+            ],
+            [
+                'class'=>'kartik\grid\EditableColumn',
+                'attribute' => 'userTaskStatus',
+                'label'=>'审批状态',
+                'value' => function($model) {
+                    return $model::STATUS_APPROVE[$model->userTaskStatus];
+                },
+                'refreshGrid' => true,
+                'editableOptions' => function ($model, $key, $index) {
+                    $statusApprove = UserTask::STATUS_APPROVE;
+                    unset($statusApprove[0]);//去掉未审批
+                    return [
+                        'placement' => PopoverX::ALIGN_BOTTOM_RIGHT,
+                        'submitButton'=>['icon'=>'<i class="glyphicon glyphicon-floppy-disk"></i>','class'=>'btn btn-sm btn-primary kv-editable-submit'],
+                        'size' => 'md',
+                        'formOptions' => ['action' => ['/user-task/do-approve']], // point to the new action
+                        'inputType' => Editable::INPUT_DROPDOWN_LIST,
+                        'submitOnEnter' => false,
+                        'data' => $statusApprove,
+                        'afterInput' => function ($form, $widget) use ($model, $index) {
+                            return $form->field($model, "[$index]userTaskRemark")->textarea([
+                                'displayValue' => 'more...',
+                                'inputType' => Editable::INPUT_TEXTAREA,
+                                //  'value' => "Raw denim you...",
+                                'submitOnEnter' => false,
+                                'size' => 'md',
+                                'rows' => 5,
+                            ]);
+                        }
+                    ];
+                }
+            ],
+            [
+                'class'=>'kartik\grid\EditableColumn',
+                'attribute' => 'userTaskRemark',
+                'label'=>'审批备注',
+                //  'width'=>'250px',
+                'editableOptions' => function ($model, $key, $index) {
+                    return [
+                        'size' => 'md',
+                        'placement' => PopoverX::ALIGN_BOTTOM_RIGHT,
+                        'inputType' => Editable::INPUT_TEXTAREA,
+                        'displayValue' => $model->userTaskRemark? (strlen($model->userTaskRemark)<=30? $model->userTaskRemark : substr($model->userTaskRemark,0,30).'...') : '',
+                        'options' => ['rows' => 5],
+                        'submitOnEnter' => false,
+                        'readonly' => true,
+                        'buttonsTemplate' => '',
+                    ];
+                }
+            ],
+        ],
+    ]); ?>
+</div>

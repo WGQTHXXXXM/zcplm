@@ -1,0 +1,238 @@
+<?php
+
+namespace frontend\controllers;
+
+use Yii;
+use frontend\models\Tasks;
+use frontend\models\TasksSearch;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use frontend\models\UserTask;
+use yii\data\ActiveDataProvider;
+use backend\models\User;
+use yii\filters\AccessControl;
+/**
+ * TasksController implements the CRUD actions for Tasks model.
+ */
+class TasksController extends Controller
+{
+    //审批人ID
+    static $usersApprove = [10,8];
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'access' => [
+                'class' => AccessControl::className(),
+                'only' => ['index'],
+                'rules' => [
+                    [
+                        'actions' => ['index'],
+                        'allow' => true,
+                        'roles' => ['@'],
+                    ],
+                ],
+            ],
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all Tasks models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+//        $model = new Tasks();
+//        var_dump($model->find()->select('remark as AA,id')->all() );die;
+        $searchModel = new TasksSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+        //                      只找当前用户自己的任务并且是未提交和被拒的任务
+        //$dataProvider->query->where(['tasks.status'=>[Tasks::STATUS_UNCOMMIT,Tasks::STATUS_REJECTED]])->andWhere(["tasks.user_id"=>Yii::$app->user->id]);
+        //自己所有的任务都显示
+        $dataProvider->query->Where(["tasks.user_id"=>Yii::$app->user->id])->orderBy("tasks.status");
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**
+     * Displays a single Tasks model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        return $this->render('view', [
+            'model' => $this->findModel($id),
+        ]);
+    }
+
+    /**
+     * Creates a new Tasks model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate()
+    {
+        $model = new Tasks();
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            return $this->redirect(['view', 'id' => $model->id]);
+        } else {
+            return $this->render('create', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Updates an existing Tasks model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            return $this->redirect(['view', 'id' => $model->id]);
+        } else {
+            return $this->render('update', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Deletes an existing Tasks model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+
+        //$this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the Tasks model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return Tasks the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = Tasks::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    /**
+     * 任务备注的处理
+     */
+    public function actionDoRemark()
+    {
+        if (isset($_POST['hasEditable']))
+        {
+            \Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+            $mdlTask = Tasks::findOne($_POST['editableKey']);
+            $data = current($_POST['Tasks']);
+            $mdlTask->remark = $data['remark'];
+            if($mdlTask->save())
+                return ['output'=>'', 'message'=>''];
+        }
+        return ['output'=>'', 'message'=>'save data error.'];
+    }
+
+    /**
+     * 任务提交的处理
+     */
+    public function actionDoCommit($id)
+    {
+        $mdlTasks = Tasks::findOne($id);
+        $mdlTasks->status = Tasks::STATUS_COMMITED;
+        $mdlTasks->date = time();
+        $transaction = Yii::$app->getDb()->beginTransaction();//开启事务
+        $isSuc = true;//都保存成功
+        $message = '';
+        if($mdlTasks->getOldAttribute('status')==Tasks::STATUS_UNCOMMIT&& $mdlTasks->save())//如果之前是未提交并提交成功后要给审批人生成审批任务
+        {
+            foreach (self::$usersApprove as $userId)//生成审批任务
+            {
+                if(!$this->GenerateUserTask($mdlTasks->id,$userId))//如果保存错误就回滚
+                {
+                    $message = '生成审批时出错';
+                    $isSuc = false;
+                    break;
+                }
+            }
+        }
+        else if($mdlTasks->getOldAttribute('status') == Tasks::STATUS_REJECTED&& $mdlTasks->save())//如果之前是被退回
+        {
+            if(!UserTask::updateAll(['status'=>UserTask::STATUS_UNAPPROVE,'remark'=>''],['task_id'=>$mdlTasks->id]))
+                $isSuc = false;
+        }
+        if($isSuc)//如果都存数据库成功就提交事务
+        {
+            $isSuc = $this::sendEmail($mdlTasks->name,$mdlTasks->modifyMaterial->mfr_part_number);
+            $transaction->commit();
+            Yii::$app->getSession()->setFlash('success', "提交成功");
+            return json_encode(['status' => 1, 'message' => '', 'data' => $isSuc]);
+        }
+        else
+        {
+            $transaction->rollBack();
+            Yii::$app->getSession()->setFlash('error', $message);
+            return json_encode(['status' => 0, 'message' => '', 'data' => '']);
+        }
+    }
+
+    /**
+     * 生成个人审批
+     */
+    private function GenerateUserTask($t_id,$u_id)
+    {
+        $userTask = new UserTask();
+        $userTask->task_id = $t_id;
+        $userTask->user_id = $u_id;
+        $userTask->status = 0;
+        return $userTask->save();
+    }
+
+    /**
+     * 发送审批邮件
+     */
+    static function sendEmail($taskName,$mfrPartNo)
+    {
+        $users = array();
+        foreach (self::$usersApprove as $id) {
+            $model = User::findOne($id);
+            array_push($users, $model->email);
+        }
+
+        return Yii::$app->mailer->compose(['html' => 'noticeApprove-html'], ['taskName'=>$taskName,'mfrPartNo'=>$mfrPartNo,])
+            ->setFrom([Yii::$app->params['supportEmail'] => Yii::$app->name . ' robot'])
+            ->setTo($users)
+            ->setSubject('通知——来自' . Yii::$app->name)
+            ->send();
+    }
+
+}

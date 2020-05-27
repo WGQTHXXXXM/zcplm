@@ -1,0 +1,49 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "approver".
+ *
+ * @property integer $user_id
+ * @property integer $type
+ * @property string $department
+ * @property integer $id
+ */
+class Approver extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'approver';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['user_id', 'type', 'department'], 'required'],
+            [['user_id', 'type'], 'integer'],
+            [['department'], 'string', 'max' => 20],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'user_id' => Yii::t('material', '审批人'),
+            'type' => Yii::t('material', '审批种类'),
+            'department' => Yii::t('material', '审批部门'),
+            'id' => Yii::t('material', '主键'),
+        ];
+    }
+}

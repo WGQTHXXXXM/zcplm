@@ -1,0 +1,401 @@
+<?php
+/**
+ * @copyright Copyright &copy; Kartik Visweswaran, Krajee.com, 2015 - 2017
+ * @package   yii2-tree-manager
+ * @version   1.0.8
+ */
+
+use kartik\form\ActiveForm;
+use kartik\tree\Module;
+use kartik\tree\TreeView;
+use kartik\tree\models\Tree;
+use yii\helpers\ArrayHelper;
+use yii\helpers\Html;
+use yii\helpers\Json;
+use yii\web\View;
+
+/**
+ * @var View       $this
+ * @var Tree       $node
+ * @var ActiveForm $form
+ * @var array      $formOptions
+ * @var string     $keyAttribute
+ * @var string     $nameAttribute
+ * @var string     $iconAttribute
+ * @var string     $iconTypeAttribute
+ * @var string     $iconsList
+ * @var string     $action
+ * @var array      $breadcrumbs
+ * @var array      $nodeAddlViews
+ * @var mixed      $currUrl
+ * @var boolean    $showIDAttribute
+ * @var boolean    $showFormButtons
+ * @var boolean    $allowNewRoots
+ * @var string     $nodeSelected
+ * @var array      $params
+ * @var string     $keyField
+ * @var string     $nodeView
+ * @var string     $noNodesMessage
+ * @var boolean    $softDelete
+ * @var string     $modelClass
+ */
+?>
+<?php
+/**
+ * SECTION 1: Initialize node view params & setup helper methods.
+ */
+?>
+<?php
+extract($params);
+$session = Yii::$app->has('session') ? Yii::$app->session : null;
+
+// parse parent key
+if ($noNodesMessage) {
+    $parentKey = '';
+} elseif (empty($parentKey)) {
+    $parent = $node->parents(1)->andWhere(['project_id'=>$node->project_id])->one();
+    $parentKey = empty($parent) ? '' : Html::getAttributeValue($parent, $keyAttribute);
+}
+
+// tree manager module
+$module = TreeView::module();
+// active form instance
+$form = ActiveForm::begin(['action' => $action, 'options' => $formOptions]);
+
+// helper function to show alert
+$showAlert = function ($type, $body = '', $hide = true) {
+    $class = "alert alert-{$type}";
+    if ($hide) {
+        $class .= ' hide';
+    }
+    return Html::tag('div', '<div>' . $body . '</div>', ['class' => $class]);
+};
+
+// helper function to render additional view content
+$renderContent = function ($part) use ($nodeAddlViews, $params, $form) {
+    if (empty($nodeAddlViews[$part])) {
+        return '';
+    }
+    $p = $params;
+    $p['form'] = $form;
+    return $this->render($nodeAddlViews[$part], $p);
+};
+?>
+<?php //echo $form->field($node, 'remark')->textInput(['maxlength' => true]); ?>
+
+<?php
+/**
+ * SECTION 2: Initialize hidden attributes. In case you are extending this and creating your own view, it is mandatory
+ * to set all these hidden inputs as defined below.
+ */
+?>
+<?= Html::hiddenInput('treeNodeModify', $node->isNewRecord) ?>
+<?= Html::hiddenInput('parentKey', $parentKey) ?>
+<?= Html::hiddenInput('currUrl', $currUrl) ?>
+<?= Html::hiddenInput('modelClass', $modelClass) ?>
+<?= Html::hiddenInput('nodeSelected', $nodeSelected) ?>
+
+<?php
+/**
+ * SECTION 3: Hash signatures to prevent data tampering. In case you are extending this and creating your own view, it
+ * is mandatory to include this section below.
+ */
+?>
+<?php
+$security = Yii::$app->security;
+$id = $node->isNewRecord ? null : $node->$keyAttribute;
+
+// save signature
+$dataToHash = !!$node->isNewRecord . $currUrl . $modelClass;
+echo Html::hiddenInput('treeSaveHash', $security->hashData($dataToHash, $module->treeEncryptSalt));
+
+// manage signature
+if (array_key_exists('depth', $breadcrumbs) && $breadcrumbs['depth'] === null) {
+    $breadcrumbs['depth'] = '';
+}
+$icons = is_array($iconsList) ? array_values($iconsList) : $iconsList;
+$dataToHash = $modelClass . !!$isAdmin . !!$softDelete . !!$showFormButtons . !!$showIDAttribute .
+    $currUrl . $nodeView . $nodeSelected . Json::encode($formOptions) .
+    Json::encode($nodeAddlViews) . Json::encode($icons) . Json::encode($breadcrumbs);
+echo Html::hiddenInput('treeManageHash', $security->hashData($dataToHash, $module->treeEncryptSalt));
+
+// remove signature
+$dataToHash = $modelClass . $softDelete;
+echo Html::hiddenInput('treeRemoveHash', $security->hashData($dataToHash, $module->treeEncryptSalt));
+
+// move signature
+$dataToHash = $modelClass . $allowNewRoots;
+echo Html::hiddenInput('treeMoveHash', $security->hashData($dataToHash, $module->treeEncryptSalt));
+?>
+
+<?php if (!$noNodesMessage): ?>
+    <?php
+    $isAdmin = ($isAdmin == true || $isAdmin === "true"); // admin mode flag
+    $inputOpts = [];                                      // readonly/disabled input options for node
+    $flagOptions = ['class' => 'kv-parent-flag'];         // node options for parent/child
+
+    /**
+     * the primary key input field
+     */
+    if ($showIDAttribute) {
+        $options = ['readonly' => true];
+        if ($node->isNewRecord) {
+            $options['value'] = Yii::t('kvtree', '(new)');
+        }
+        $keyField = $form->field($node, $keyAttribute)->textInput($options);
+    } else {
+        $keyField = Html::activeHiddenInput($node, $keyAttribute);
+    }
+
+    /**
+     * initialize for create or update
+     */
+    $depth = ArrayHelper::getValue($breadcrumbs, 'depth');
+    $glue = ArrayHelper::getValue($breadcrumbs, 'glue');
+    $activeCss = ArrayHelper::getValue($breadcrumbs, 'activeCss');
+    $untitled = ArrayHelper::getValue($breadcrumbs, 'untitled');
+    $name = $node->getBreadcrumbs($depth, $glue, $activeCss, $untitled);
+    if ($node->isNewRecord && !empty($parentKey) && $parentKey !== TreeView::ROOT_KEY) {
+        /**
+         * @var Tree $modelClass
+         * @var Tree $parent
+         */
+        $depth = empty($breadcrumbsDepth) ? null : intval($breadcrumbsDepth) - 1;
+        if ($depth === null || $depth > 0) {
+            $parent = $modelClass::findOne($parentKey);
+            $name = $parent->getBreadcrumbs($depth, $glue, null) . $glue . $name;
+        }
+    }
+    if ($node->isReadonly()) {
+        $inputOpts['readonly'] = true;
+    }
+    if ($node->isDisabled()) {
+        $inputOpts['disabled'] = true;
+    }
+    if ($node->isLeaf()) {
+        $flagOptions['disabled'] = true;
+    }
+
+    ?>
+
+    <div class="kv-detail-heading">
+        <?php if (empty($inputOpts['disabled']) || ($isAdmin && $showFormButtons)): ?>
+            <div class="pull-right">
+                <button type="reset" class="btn btn-default" title="<?= Yii::t('kvtree', 'Reset') ?>">
+                    <i class="glyphicon glyphicon-repeat"></i>
+                </button>
+                <button type="submit" class="btn btn-primary" title="<?= Yii::t('kvtree', 'Save') ?>">
+                    <i class="glyphicon glyphicon-floppy-disk"></i>
+                </button>
+            </div>
+        <?php endif; ?>
+        <div class="kv-detail-crumbs"><?= $name ?></div>
+        <div class="clearfix"></div>
+    </div>
+
+
+    <div class="kv-treeview-alerts">
+        <?php
+        if ($session && $session->hasFlash('success')) {
+            echo $showAlert('success', $session->getFlash('success'), false);
+        } else {
+            echo $showAlert('success');
+        }
+        if ($session && $session->hasFlash('error')) {
+            echo $showAlert('danger', $session->getFlash('error'), false);
+        } else {
+            echo $showAlert('danger');
+        }
+        echo $showAlert('warning');
+        echo $showAlert('info');
+        ?>
+    </div>
+
+    <?php
+
+    $dataMtr = json_encode(\frontend\models\ProjectMaterial::getFileAllMtr($node->id));
+    //所有文件
+    $dataFile = \frontend\models\ProjectProcessTemplate::find()->where(['lvl'=>3])->select('name')->indexBy('name')->column();
+    $projectId = $node->project_id;
+    if(empty($node->project_id))//说明是新建的
+        $projectId = $parent->project_id;
+    $project = \frontend\models\ProjectProcess::find()->where(['lvl'=>3,'project_id'=>$projectId])->select('name')->indexBy('name')->column();
+
+    $dataFile = array_diff_key($dataFile,$project);
+    $dataFile[$node->name] = $node->name;
+
+    echo $renderContent(Module::VIEW_PART_1);
+    ?>
+
+    <?php if ($iconsList == 'text' || $iconsList == 'none'): ?>
+        <?php if ($showIDAttribute): ?>
+            <div class="row">
+                <div class="col-sm-4">
+                    <?= $keyField ?>
+                </div>
+                <div class="col-sm-8">
+                    <?= $form->field($node, $nameAttribute)->textInput($inputOpts) ?>
+                </div>
+            </div>
+        <?php else: ?>
+            <div class="row">
+                <div class="hide col-sm-4">
+                    <?= $keyField ?>
+                </div>
+                <div class="col-sm-4">
+                    <?= $form->field($node, $nameAttribute)->widget(\kartik\select2\Select2::className(),[
+                        'data' => empty($dataFile)?[]:$dataFile,
+                        'pluginOptions' => ['tokenSeparators' => [',', ' ']],
+                    ]) ?>
+                </div>
+            </div>
+            <br>
+<!--给文件分配物料部分-->
+            <?php if ($node->lvl == 3&&isset($dataMtr)): ?>
+            <div class="department-view">
+
+                <div class="row">
+                    <div class="col-sm-5">
+                        <input class="form-control search" data-target="avaliable" onkeypress="if(event.keyCode==13)return false;"
+                               placeholder="<?= Yii::t('rbac-admin', 'Search for avaliable') ?>">
+                        <select multiple size="20" class="form-control list" data-target="avaliable"></select>
+                    </div>
+                    <div class="col-sm-1">
+                        <br><br>
+                        <?= Html::a('&gt;&gt; <i class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></i>',
+                            [
+                                '/node/assign-mtr', 'id' => $node->id
+                            ],
+                            [
+                                'class' => 'btn btn-success btn-assign',
+                                'data-target' => 'avaliable',
+                                'title' => Yii::t('rbac-admin', 'Assign')
+                            ]) ?><br><br>
+                        <?= Html::a('&lt;&lt; <i class="glyphicon glyphicon-refresh glyphicon-refresh-animate"></i>',
+                            [
+                                '/node/remove-mtr', 'id' => $node->id
+                            ],
+                            [
+                                'class' => 'btn btn-danger btn-assign',
+                                'data-target' => 'assigned',
+                                'title' => Yii::t('rbac-admin', 'Remove')
+                            ]) ?>
+                    </div>
+                    <div class="col-sm-5">
+                        <input class="form-control search" data-target="assigned" onkeypress="if(event.keyCode==13)return false;"
+                               placeholder="<?= Yii::t('rbac-admin', 'Search for assigned') ?>">
+                        <select multiple size="20" class="form-control list" data-target="assigned"></select>
+                    </div>
+                </div>
+
+            </div>
+
+<?php
+
+$js = <<<JS
+    var dataUser = {$dataMtr};
+    
+    $('i.glyphicon-refresh-animate').hide();
+    function updateItems(r) {
+        dataUser.avaliable = r.avaliable;
+        dataUser.assigned = r.assigned;
+        search('avaliable');
+        search('assigned');
+    }
+    
+    //分配和移除按键
+    $('.btn-assign').click(function () {
+        var thisBtn = $(this);
+        var target = thisBtn.data('target');
+        var items = $('select.list[data-target="' + target + '"]').val();
+    
+        if (items && items.length) {
+            thisBtn.children('i.glyphicon-refresh-animate').show();
+            $.post(thisBtn.attr('href'), {items: items}, function (json) {
+                if(json.status == 0)
+                    alert(json.message);
+                else{
+                    updateItems(json.data);
+                }
+               
+            },'json').always(function () {
+                thisBtn.children('i.glyphicon-refresh-animate').hide();
+            });
+        }
+        return false;
+    });
+    
+    //键盘按下时搜索
+    $('.search[data-target]').keyup(function () {
+        search($(this).data('target'));
+    });
+    
+    //过滤的方法
+    function search(target) {
+        var list = $('select.list[data-target="' + target + '"]');
+        list.html('');
+        var q = $('.search[data-target="' + target + '"]').val();
+    
+        $.each(dataUser[target], function (key, val) {
+            if (val.indexOf(q) >= 0) {//如果这个值里有输入的就添加。
+                $('<option>').text(val).val(key).appendTo(list);
+            }
+        });
+    }
+    // initial
+    search('avaliable');
+    search('assigned');
+
+JS;
+
+$this->registerJs($js);
+
+?>
+            <?php endif; ?>
+<!--给文件分配物料部分-->
+
+
+
+        <?php endif; ?>
+    <?php else: ?>
+        <div class="row">
+            <div class="col-sm-6">
+                <?= $keyField ?>
+                <?= Html::activeHiddenInput($node, $iconTypeAttribute) ?>
+                <?= $form->field($node, $nameAttribute)->textArea(['rows' => 3] + $inputOpts) ?>
+            </div>
+            <div class="col-sm-6">
+                <?= /** @noinspection PhpUndefinedMethodInspection */
+                $form->field($node, $iconAttribute)->multiselect($iconsList, [
+                    'item' => function ($index, $label, $name, $checked, $value) use ($inputOpts) {
+                        if ($index == 0 && $value == '') {
+                            $checked = true;
+                            $value = '';
+                        }
+                        return '<div class="radio">' . Html::radio($name, $checked, [
+                                'value' => $value,
+                                'label' => $label,
+                                'disabled' => !empty($inputOpts['readonly']) || !empty($inputOpts['disabled'])
+                            ]) . '</div>';
+                    },
+                    'selector' => 'radio',
+                ]) ?>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?= $renderContent(Module::VIEW_PART_2) ?>
+
+<?php endif; ?>
+
+
+<?php ActiveForm::end() ?>
+
+<?= $noNodesMessage ? $noNodesMessage : $renderContent(Module::VIEW_PART_5) ?>
+
+<?php
+//$js = <<<JS
+//    $("#treeID").treeview("collapseAll");
+//JS;
+//$this->registerJs($js);
+?>

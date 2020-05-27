@@ -1,0 +1,199 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+
+/**
+ *
+ * Ecn的建表思路:1.一个ECN有可能对应多个“变更集合”ecn_change_set。
+ *              2.一个变更集合有可能对应多个“零件使用者”ecn_part_user。
+ *              3.一个“零件使用都”有可能对应一个“组变更”ecn_alt_group。(改二三四供时的信息)
+ *              4.当ECN改变一个bom时：要做的是把变更集合的信息存起来，然后要改变原bom的时间，
+ *                再增加新的bom(增加的料存到ecn_bomid_temp，以备删除时用可以找到)。
+ *
+ * This is the model class for table "ecn".
+ *
+ * @property integer $id
+ * @property string $serial_number
+ * @property string $reason
+ * @property string $detail
+ * @property string $module
+ * @property integer $created_at
+ * @property integer $updated_at
+ * @property integer $change_now
+ * @property integer $affect_stock
+ * @property string $remark
+ * @property integer $ecr_id
+ */
+class Ecn extends EcrAndEcn
+{
+
+    //以下变量为了联合审批人表用,type=3的都是ECN的;
+    public $type = Tasks::TASK_TYPE_ECN;
+
+    //是否立即变更
+    const CHANGE_NOW = [1=>'是',0=>'否'];
+    const CHANGE_NOW_YES = 1;
+    const CHANGE_NOW_NO = 0;
+
+    //是否影响库存产品
+    const AFFECT_STOCK = [1=>'是',0=>'否'];
+    const AFFECT_STOCK_YES = 1;
+    const AFFECT_STOCK_NO = 0;
+
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'ecn';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['serial_number', 'reason', 'detail', 'module', 'project_process','created_at', 'updated_at', 'change_now', 'affect_stock',
+                'ecr_id'], 'required'],
+            [['reason', 'detail'], 'string'],
+            [['created_at', 'updated_at', 'change_now', 'affect_stock', 'ecr_id'], 'integer'],
+            [['serial_number'], 'string', 'max' => 20],
+            [['project_process'], 'string', 'max' => 30],
+            [['module', 'remark'], 'string', 'max' => 255],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        $arr = parent::attributeLabels();
+        return array_merge($arr,[
+            'id' => Yii::t('material', 'ID'),
+            'serial_number' => Yii::t('material', '编号'),
+            'reason' => Yii::t('material', '变更原因'),
+            'detail' => Yii::t('material', '变更内容'),
+            'module' => Yii::t('material', '项目机种名称'),
+            'project_process' => Yii::t('material', '项目阶段'),
+            'created_at' => Yii::t('material', '创建时间'),
+            'updated_at' => Yii::t('material', '更新时间'),
+            'change_now' => Yii::t('material', '是否立即变更'),
+            'affect_stock' => Yii::t('material', '是否影响库存产品'),
+            'remark' => Yii::t('material', '备注'),
+            'ecr_id' => Yii::t('material', 'ecr编号'),
+
+            'user'=>'创建者',
+            'status'=>'审批情况'
+        ]);
+    }
+
+    /**
+     * 新建时分配数据
+     */
+    public function assignEcrDate($EcrId)
+    {
+        $model = Ecr::findOne($EcrId);
+        $this->ecr_id = $EcrId;
+        $this->reason = $model->reason;
+        $this->detail = $model->detail;
+        $this->module = $model->module;
+        $this->project_process = $model->project_process;
+        //审批人
+    }
+
+    /**
+     * 更新界面时的界面上的数据
+     */
+    public function getDataUpdate()
+    {
+        $arrChangeSets = EcnChangeSet::getTblPartStr()->where(['ecn_id'=>$this->id])->asArray()->all();
+        foreach ($arrChangeSets as $k=>$changeSet)
+        {
+            //得到boms是否在审批
+
+            if($changeSet['type'] == EcnChangeSet::CT_ALTGROUP)
+            {
+                $tmpDatas = EcnPartUser::find()->where(['ecn_change_id'=>$changeSet['id']])
+                    ->innerJoin('ecn_altgroup as ea','ea.part_user_id=ecn_part_user.id')
+                    ->leftJoin('materials as mtr','mtr.material_id=ea.mdf_part_id')
+                    ->innerJoin('boms_child as cbom','cbom.id=ecn_part_user.bom_id')
+                    ->innerJoin('boms_parent as pbom','pbom.id=cbom.boms_parent_id')
+                    ->innerJoin('materials as m0','m0.material_id=pbom.parent_id')
+                    ->innerJoin('materials as m1','m1.material_id=cbom.child_id')
+                    ->leftJoin('materials as m2','m2.material_id=cbom.zc_part_number2_id')
+                    ->leftJoin('materials as m3','m3.material_id=cbom.zc_part_number3_id')
+                    ->leftJoin('materials as m4','m4.material_id=cbom.zc_part_number4_id')
+                    ->select('ea.mfr_no,ea.mdf_type,
+                        ea.mdf_part_id,
+                        mtr.zc_part_number as mdf_part,
+                        cbom.id as idBom,
+                        m0.zc_part_number as userZcPartNo,
+                        m0.description as userDesc,
+                        m1.zc_part_number as zcPartNo1,
+                        m2.zc_part_number as zcPartNo2,
+                        m3.zc_part_number as zcPartNo3,
+                        m4.zc_part_number as zcPartNo4,');
+            }
+            else
+            {
+                $tmpDatas = EcnPartUser::find()->where(['ecn_change_id'=>$changeSet['id']])
+                    ->innerJoin('boms_child as cbom','cbom.id=ecn_part_user.bom_id')
+                    ->innerJoin('boms_parent as pbom','pbom.id=cbom.boms_parent_id')
+                    ->innerJoin('materials as m1','m1.material_id=pbom.parent_id')
+                    ->select('cbom.id as idBom,m1.zc_part_number as userZcPartNo,m1.description as userDesc');
+            }
+            $arrChangeSets[$k]['partUser'] = $tmpDatas->asArray()->all();
+        }
+        arsort($arrChangeSets);
+        return array_values($arrChangeSets);
+    }
+
+
+    /**
+     * 保存变更集合
+     */
+    public function saveChangeSet()
+    {
+        if(EcnChangeSet::saveChangeSet($this->id,$this->serial_number))
+            return true;
+        return false;
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    /**
+     * 在表格里显示变更原因
+     */
+    public function getCutReason()
+    {
+        return $this->reason? (mb_strlen($this->reason)<=10? $this->reason : mb_substr($this->reason,0,10).'...') : '';
+    }
+
+    /**
+     * 在表格里显示变更内容
+     */
+    public function getCutDetail()
+    {
+        return $this->detail? (mb_strlen($this->detail)<=10? $this->detail : mb_substr($this->detail,0,10).'...') : '';
+    }
+
+
+
+    /////////////////////////////////关联表///////////////////////////////////////
+    //关联变更集合表
+    public function getEcnChangeSet()
+    {
+        return $this->hasMany(EcnChangeSet::className(),['ecn_id'=>'id']);
+    }
+
+    public function getEcr()
+    {
+        return $this->hasOne(Ecr::className(),['id'=>'ecr_id']);
+    }
+
+}

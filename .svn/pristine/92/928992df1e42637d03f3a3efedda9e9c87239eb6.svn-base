@@ -1,0 +1,181 @@
+<?php
+
+namespace frontend\models;
+
+use common\components\CommonFunc;
+use Yii;
+
+/**
+ * This is the model class for table "ecr".
+ *
+ * @property integer $id
+ * @property string $serial_number
+ * @property string $reason
+ * @property string $detail
+ * @property string $module
+ * @property integer $created_at
+ * @property integer $updated_at
+ */
+class Ecr extends EcrAndEcn
+{
+    //审批状态
+    //const STATUS_ECR = [0=>'待提交',1=>'审核中',2=>'被退回',3=>'已通过'];
+
+    //上传的文件
+    public $uploadFile;
+
+    //
+    public $projectName,$projectProcessName,$bom;
+
+    //任务名称
+    const ECR_CREATE1 = '新增ECR一审';
+    const ECR_CREATE2 = '新增ECR二审';
+    const ECR_CREATE3 = '新增ECR三审';
+    const ECR_CREATE4 = '新增ECR四审';
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'ecr';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        $arr = parent::rules();
+        return array_merge($arr,[
+            [['serial_number','reason','detail','bom_id','project_process_id','created_at',
+                'updated_at','project_id'],'required'],
+            [['reason', 'detail'], 'string'],
+            [['created_at', 'updated_at','bom_id','project_id','project_process_id'], 'integer'],
+            [['serial_number'], 'string', 'max' => 20],
+            [['uploadFile'], 'file','maxFiles' => 5],
+            [['uploadFile'], 'safe']
+        ]);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        $arr = parent::attributeLabels();
+        return array_merge($arr,[
+            'id' => Yii::t('material', 'ID'),
+            'serial_number' => Yii::t('material', '编号'),
+            'reason' => Yii::t('material', '变更背景'),
+            'detail' => Yii::t('material', '变更内容'),
+            'bom_id' => Yii::t('material', '机种智车料号'),
+            'project_process_id' => Yii::t('material', '项目阶段'),
+            'bom' => Yii::t('material', '机种智车料号'),
+            'projectProcessName' => Yii::t('material', '项目阶段'),
+            'projectName' => Yii::t('material', '项目名称'),
+            'created_at' => Yii::t('material', '创建时间'),
+            'updated_at' => Yii::t('material', '更新时间'),
+            'project_id'=>'项目名称',
+            'user'=>'创建者',
+            'status'=>'审批情况',
+            'approver1'=>'部门内一级审批',
+            'approver2'=>'部门内二级审批',
+            'approver3'=>'审批团',
+            'approver4dcc'=>'dcc审批'
+        ]);
+    }
+
+    //以下变量为了联合审批人表用,type=2的都是ECR的;
+    public $type = [Tasks::TASK_TYPE_ECR1,Tasks::TASK_TYPE_ECR3,Tasks::TASK_TYPE_ECR2,Tasks::TASK_TYPE_ECR4];
+
+    //关联附件表
+    public function getAttachments()
+    {
+        return $this->hasMany(EcrAttachment::className(),['ecr_id'=>'id']);
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    /**
+     * 在表格里显示变更原因
+     */
+    public function getCutReason()
+    {
+        return $this->reason? (mb_strlen($this->reason)<=10? $this->reason : mb_substr($this->reason,0,10).'...') : '';
+    }
+
+    /**
+     * 在表格里显示变更内容
+     */
+    public function getCutDetail()
+    {
+        return $this->detail? (mb_strlen($this->detail)<=10? $this->detail : mb_substr($this->detail,0,10).'...') : '';
+    }
+
+
+    /////////////////////关联表/////////////////////////////////////////////////
+    public function getEcn()
+    {
+        return $this->hasOne(Ecn::className(),['ecr_id'=>'id']);
+    }
+
+    public function getProjectProcess()
+    {
+        return $this->hasOne(ProjectProcess::className(),['id'=>'project_process_id']);
+    }
+
+    public function getProjects()
+    {
+        return $this->hasOne(Projects::className(),['id'=>'project_id']);
+    }
+
+    public function getBoms()
+    {
+        return $this->hasOne(Materials::className(),['material_id'=>'bom_id']);
+    }
+
+
+    //审批同意的处理
+    public static function approvePass($mdlTask)
+    {
+        $_POST['taskCommit']=1;//是否立即提交
+        $_POST['taskRemark']='';//备注
+        $type = Tasks::TASK_TYPE_ECR4;//任务类型
+        if($mdlTask->type == Tasks::TASK_TYPE_ECR1)
+            $type = Tasks::TASK_TYPE_ECR2;
+        else if($mdlTask->type == Tasks::TASK_TYPE_ECR2)
+            $type = Tasks::TASK_TYPE_ECR3;
+        else if($mdlTask->type == Tasks::TASK_TYPE_ECR3)
+            $type = Tasks::TASK_TYPE_ECR4;
+        else if($mdlTask->type == Tasks::TASK_TYPE_ECR4)//任务完成
+        {
+            Yii::$app->getSession()->setFlash('success', "任务通过");
+            return Ecr::findOne($mdlTask->type_id)->serial_number;
+        }
+        //任务名称
+        if($mdlTask->name == self::ECR_CREATE1)
+            $mdlTask->name = self::ECR_CREATE2;
+        else if($mdlTask->name == self::ECR_CREATE2)
+            $mdlTask->name = self::ECR_CREATE3;
+        else if($mdlTask->name == self::ECR_CREATE3)
+            $mdlTask->name = self::ECR_CREATE4;
+
+
+        $approvers=Tasks::getApprovers($type,$mdlTask->type_id);
+
+        if(!UserTask::GenerateUserTask($approvers['approvers'],$mdlTask->id))
+            return -1;
+
+        $mdlTask->type = $type;
+        $mdlTask->status = Tasks::STATUS_COMMITED;
+        if(!$mdlTask->save())
+            return -1;
+        Yii::$app->getSession()->setFlash('success', "审批成功");
+        CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$approvers['mail'],$mdlTask->name,
+            $approvers['code'],'user-task/index',$mdlTask->user->username);
+        return Ecr::findOne($mdlTask->type_id)->serial_number;
+    }
+
+
+
+}

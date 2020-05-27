@@ -1,0 +1,564 @@
+<?php
+
+namespace frontend\models;
+
+use common\components\CommonFunc;
+use Yii;
+
+/**
+ * This is the model class for table "modify_material".
+ *
+ * @property string $Id
+ * @property integer $assy_level
+ * @property string $purchase_level
+ * @property string $mfr_part_number
+ * @property string $part_name
+ * @property string $description
+ * @property string $unit
+ * @property string $pcb_footprint
+ * @property integer $manufacturer
+ * @property string $zc_part_number
+ * @property string $date_entered
+ * @property integer $vehicle_standard
+ * @property integer $part_type
+ * @property string $value
+ * @property string $schematic_part
+ * @property string $price
+ * @property integer $recommend_purchase
+ * @property integer $minimum_packing_quantity
+ * @property integer $lead_time
+ * @property integer $manufacturer2_id
+ * @property integer $manufacturer3_id
+ * @property integer $manufacturer4_id
+ * @property integer $material_id
+ * @property integer $task_id
+ */
+class ModifyMaterial extends \yii\db\ActiveRecord
+{
+    //一，二级分类
+    public $class1;
+    public $class2;
+    //形成智车料号的六个分类
+    public $mer1;
+    public $mer2;
+    public $mer3;
+    public $mer4;
+    public $mer5;
+    public $mer6;
+    public $mer7;
+    public $mer8;
+    public $mer9;
+    //二三四供的智车料号和审批
+    public $mfrPartNo2;
+    public $mfrPartNo3;
+    public $mfrPartNo4;
+    public $approver1,$approver2,$approver3dcc,$approver3purchase;
+    //提交表单时的弹出的任务备注
+
+    //物料描述规则除物料名称外的六个输入项
+    public $description_options1,$description_options2,$description_options3,$description_options4,$description_options5,$description_options6;
+
+    //定义螺钉物料编码各选项
+    public $screw_material_encode_options1,$screw_material_encode_options2,$screw_material_encode_options3,$screw_material_encode_options4,$screw_material_encode_options5,$screw_material_encode_options6,$screw_material_encode_options7,$screw_material_encode_options8,$screw_material_encode_options9;
+
+
+    //采购推荐级别的宏定义
+    const RECOMMEND_PURCHASE = [0=>'可用',1=>'推荐',2=>'不推荐',3=>'禁用'];
+    const RP_FORBIDDEN = 3;
+    //物料级别
+    const VEHICLE_STANDARD = [0=>'商业级',1=>'工业级',2=>'汽车级'];
+
+    //任务名称
+    const MATERIAL_CREATE1 = '新增物料一审';
+    const MATERIAL_CREATE2 = '新增物料二审';
+    const MATERIAL_CREATE3 = '新增物料三审';
+    const MATERIAL_UPDATE = '更新物料一审';
+    const MATERIAL_UPDATE2 = '更新物料二审';
+    const MATERIAL_UPDATE3 = '更新物料三审';
+
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'modify_material';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['assy_level',  'description', 'zc_part_number', 'part_type','is_first_mfr','approver1',
+                'approver2','approver3dcc','approver3purchase'], 'required'],
+            [['assy_level', 'manufacturer', 'vehicle_standard', 'part_type', 'recommend_purchase', 'minimum_packing_quantity',
+                'lead_time', 'manufacturer2_id', 'manufacturer3_id', 'manufacturer4_id', 'material_id','parent_id','is_first_mfr'], 'integer'],
+            [[ 'material_id','parent_id','mfr_part_number','date_entered','recommend_purchase','vehicle_standard'], 'safe'],
+            [['purchase_level', 'unit'], 'string', 'max' => 10],
+            [['mfr_part_number', 'description', 'pcb_footprint', 'value', 'schematic_part','remark'], 'string', 'max' => 255],
+            [['zc_part_number'], 'string', 'max' => 40],
+            [['price'], 'string', 'max' => 20],
+            [['part_name','car_number'], 'string', 'max' => 50],
+//            [['description'], 'match', 'pattern'=>'/(_(.*)){6}/', 'message'=>'字符“_”不能小于6个'],
+            [['description'], 'match', 'not'=>TRUE, 'pattern'=>'/(_(.*)){7}/', 'message'=>'字符“_”不能大于6个'],
+
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'assy_level' => Yii::t('material', 'Assy Level'),
+            'is_first_mfr'=> Yii::t('material', 'Is First Manufacturer'),
+            'purchase_level' => Yii::t('material', 'Purchase Level'),
+            'mfr_part_number' => Yii::t('material', 'Manufacturer Part Number'),
+            'part_name' => Yii::t('material', 'Part Name'),
+            'description' => Yii::t('material', 'Description'),
+            'unit' => Yii::t('material', 'Unit'),
+            'pcb_footprint' => 'PCB Footprint',
+            'manufacturer' => Yii::t('material', 'Manufacturer'),
+            'zc_part_number' => Yii::t('material', 'Zhiche Part Number'),
+            'date_entered' => Yii::t('material', 'Date Entered'),
+            'vehicle_standard' => Yii::t('material', 'Vehicle Standard'),
+            'part_type' => Yii::t('material', 'Part Type'),
+            'value' => Yii::t('material', 'Value'),
+            'schematic_part' => Yii::t('material', 'Schematic Part'),
+            'datasheet' => Yii::t('material', 'Datasheet'),
+            'price' => Yii::t('material', 'Price'),
+            'recommend_purchase' => Yii::t('material', 'Recommend Purchase'),
+            'minimum_packing_quantity' => Yii::t('material', 'Minimum Packing Quantity'),
+            'lead_time' => Yii::t('material', 'Lead Time'),
+            'manufacturer2_id' => Yii::t('material', 'Second Manufacturer Part Number'),
+            'manufacturer3_id' => Yii::t('material', 'third Manufacturer Part Number'),
+            'manufacturer4_id' => Yii::t('material', 'fourth Manufacturer Part Number'),
+            'mfrPartNo2'=>Yii::t('material','Second Zhiche Part Number'),
+            'mfrPartNo3'=>Yii::t('material','third Zhiche Part Number'),
+            'mfrPartNo4'=>Yii::t('material','fourth Zhiche Part Number'),
+            'approver1'=>'部门内一级审批人',
+            'approver2'=>'部门内二级审批人',
+            'approver3dcc'=>'dcc审批人',
+            'approver3purchase'=>'采购审批人',
+            'remark'=>'备注',
+            'car_number'=>'整车料号',
+
+            'class1' => Yii::t('material', 'Class1'),
+            'class2' => Yii::t('material', 'Class2'),
+
+            'assy_level_toggle'=> Yii::t('material', 'Assy Level Toggle'),
+            'purchase_level_toggle'=> Yii::t('material', 'Purchase Level Toggle'),
+            'mfr_part_number_toggle'=> Yii::t('material', 'Manufacturer Part Number Toggle'),
+            'description_toggle'=> Yii::t('material', 'Description Toggle'),
+            'pcb_footprint_toggle'=> Yii::t('material', 'Pcb Footprint Toggle'),
+            'manufacturer_toggle'=> Yii::t('material', 'Manufacturer Toggle'),
+            'zc_part_number_toggle'=> Yii::t('material', 'Zhiche Part Number Toggle'),
+            'date_entered_toggle'=> Yii::t('material', 'Date Entered Toggle'),
+            'vehicle_standard_toggle'=> Yii::t('material', 'Vehicle Standard Toggle'),
+            'part_type_toggle'=> Yii::t('material', 'Part Type Toggle'),
+            'value_toggle'=> Yii::t('material', 'Value Toggle'),
+            'schematic_part_toggle'=> Yii::t('material', 'Schematic Part Toggle'),
+            'datasheet_toggle'=> Yii::t('material', 'Datasheet Toggle'),
+            'price_toggle'=> Yii::t('material', 'Price Toggle'),
+            'manufacturer2_id_toggle'=> Yii::t('material', 'Manufacturer2 Part Number Toggle'),
+            'manufacturer3_id_toggle'=> Yii::t('material', 'Manufacturer3 Part Number Toggle'),
+            'manufacturer4_id_toggle'=> Yii::t('material', 'Manufacturer4 Part Number Toggle'),
+            'recommend_purchase_toggle'=> Yii::t('material', 'Recommend Purchase Toggle'),
+            'lead_time_toggle'=> Yii::t('material', 'Lead Time Toggle'),
+            'minimum_packing_quantity_toggle'=> Yii::t('material', 'Minimum Packing Quantity Toggle'),
+        ];
+
+    }
+
+    //上传的规格书datasheet
+    public function getDatasheetAttachments()
+    {
+        return $this->hasMany(Attachments::className(),['material_id' => 'id']);
+    }
+
+    //元件类型
+    public function getPartType()
+    {
+        return $this->hasOne(MaterialEncodeRule::className(), ['id' => 'part_type']);
+    }
+
+    //一供厂商家
+    public function getManufacturer1()
+    {
+        return $this->hasOne(MaterialEncodeRule::className(), ['id' => 'manufacturer']);
+    }
+
+
+    //二供厂商家
+    public function getManufacturer2()
+    {
+        return $this->hasOne(Materials::className(), ['Material_id' => 'manufacturer2_id']);
+    }
+
+    //三供厂商家
+    public function getManufacturer3()
+    {
+        return $this->hasOne(Materials::className(), ['Material_id' => 'manufacturer3_id']);
+    }
+
+    //四供厂商家
+    public function getManufacturer4()
+    {
+        return $this->hasOne(Materials::className(), ['Material_id' => 'manufacturer4_id']);
+    }
+
+    //物料的审批表
+    public function getMaterialApprover()
+    {
+        return $this->hasOne(MaterialApprover::className(),['material_id'=>'id']);
+    }
+
+    //系列料号
+    public function getParentId()
+    {
+        return $this->hasOne(Materials::className(),['material_id'=>'parent_id']);
+    }
+
+
+    /*
+     * 任务通过的处理
+     */
+    public function doPassTask($mdlTask,$mdlUserTask=null)
+    {
+        if($mdlTask->type == Tasks::TASK_TYPE_MATERIAL){//这是个物料的任务
+
+            //以下是把元件类型更改成MaterialEncodeRule里的ID
+            $partType = MaterialEncodeRule::findOne($this->part_type);//厂家信息
+            //属于哪个元件（2级分类如RES）
+            $class2 = MaterialEncodeRule::find()->select('lft,rgt,name')->where(['lvl'=>1,'root'=>$partType->root])->
+            andWhere(['<','lft',$partType->lft])->andWhere(['>','rgt',$partType->rgt])->all()[0];
+
+            $table = isset(UserTask::$tableName[strtolower($class2->name)])?UserTask::$tableName[strtolower($class2->name)]:'';
+
+            if(self::syncMaterial($message,$table,$this,empty($this->material_id)?true:false,$partType->name))
+            {
+                $strCode = $this->mfr_part_number;
+                //保存成功后提交
+                $strAddr = $mdlTask->user->email;
+                CommonFunc::sendMail(CommonFunc::APPROVE_PASS,$strAddr,$mdlTask->name,$strCode,'tasks/index');
+                return ['status'=>true,'msg'=>"审批成功，任务已经通过"];
+            }
+            else//如果保存不成功
+                return ['status'=>false,'msg'=>$message];
+        } else if($mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER1){//物料一级审批
+
+            $_POST['taskCommit']=1;//是否立即提交
+            $_POST['taskRemark']='';//备注
+
+            $approvers=Tasks::getApprovers(Tasks::TASK_TYPE_MTR_APPROVER2,$mdlTask->type_id);
+
+            $mdlExistUserTask = UserTask::findOne(['user_id'=>$approvers['approvers'][0],'task_id'=>$mdlTask->id]);
+            if(empty($mdlExistUserTask))//没有这个审批任务，说明不是被退回的
+            {
+                if(!UserTask::GenerateUserTask($approvers['approvers'],$mdlTask->id))
+                    return ['status'=>false,'msg'=>'保存数据出错，请找下管理员1'];
+            }
+            else//有这个任务，说明是被退回的。
+            {
+                $mdlExistUserTask->remark = '';
+                $mdlExistUserTask->approve_able = 1;
+                $mdlExistUserTask->status = UserTask::STATUS_UNAPPROVE;
+                if(!$mdlExistUserTask->save())
+                    return ['status'=>false,'msg'=>'保存审批表时出错，请找下管理员4'];
+            }
+
+            $mdlTask->type = Tasks::TASK_TYPE_MTR_APPROVER2;
+            $mdlTask->status = Tasks::STATUS_COMMITED;
+            if($mdlTask->name == self::MATERIAL_CREATE1)
+                $mdlTask->name = self::MATERIAL_CREATE2;
+            else
+                $mdlTask->name = self::MATERIAL_UPDATE2;
+            if(!$mdlTask->save())
+                return ['status'=>false,'msg'=>'保存审批表时出错，请找下管理员2'];
+            CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$approvers['mail'],$mdlTask->name,
+                $approvers['code'],'user-task/index',$mdlTask->user->username);
+
+            return ['status'=>true,'msg'=>"审批成功，任务跳到二级审批"];
+        } else if($mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER2){//物料二级审批
+
+            $_POST['taskCommit']=1;//是否立即提交
+            $_POST['taskRemark']='';//备注
+            $approvers=Tasks::getApprovers(Tasks::TASK_TYPE_MATERIAL,$mdlTask->type_id);
+            $mdlExistUserTask = UserTask::findOne(['user_id'=>$approvers['approvers'][0],'task_id'=>$mdlTask->id]);
+            if(empty($mdlExistUserTask))//没有这个审批任务，说明不是被退回的
+            {
+                if(!UserTask::GenerateUserTask($approvers['approvers'],$mdlTask->id))
+                    return ['status'=>false,'msg'=>'保存审批表时出错，请找下管理员1'];
+            }
+            else//有这个任务，说明是被退回的。
+            {
+                $mdlExistUserTask->remark = '';
+                $mdlExistUserTask->approve_able = 1;
+                $mdlExistUserTask->status = UserTask::STATUS_UNAPPROVE;
+                if(!UserTask::updateAll(['remark'=>'','approve_able'=>1,'status'=>UserTask::STATUS_UNAPPROVE],
+                    ['approve_able'=>0,'task_id'=>$mdlTask->id]))
+                    return ['status'=>false,'msg'=>'保存审批表时出错，请找下管理员4'];
+            }
+
+            $mdlTask->type = Tasks::TASK_TYPE_MATERIAL;
+            $mdlTask->status = Tasks::STATUS_COMMITED;
+            if($mdlTask->name == self::MATERIAL_CREATE2)
+                $mdlTask->name = self::MATERIAL_CREATE3;
+            else
+                $mdlTask->name = self::MATERIAL_UPDATE3;
+            if(!$mdlTask->save())
+                return ['status'=>false,'msg'=>'保存审批表时出错，请找下管理员2'];
+
+            CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$approvers['mail'],$mdlTask->name,
+                $approvers['code'],'user-task/index',$mdlTask->user->username);
+
+            return ['status'=>true,'msg'=>"审批成功，任务跳到三级审批"];
+        }
+        return ['status'=>true,'msg'=>"审批成功，任务已经通过"];
+
+    }
+
+
+    /** 同步数据到研发库里
+     * @param $tableName:同步到哪个研发数据库,如果是空字符串的话，说明是结构的
+     * @param $model:物料数据
+     * @param $isCreate:是否是新建
+     * @param $partTypeName:分类的名字
+     * @return bool:是否保存成功，到时事务要用到返回值
+     */
+    public static function syncMaterial(&$message,$tableName,$mdlModifyMaterial,$isCreate,$partTypeName)
+    {
+        $className = $tableName;//插入的是哪个表
+        $classNcName = $className."Nc";
+        $oldIsFirstMfr = 0;//声明更新前的’是否是一供‘的值
+        //更新还是插入
+        if($isCreate)//insert
+        {
+            if($tableName != '')//如果是结构的就不用向研发库里导入
+            {
+                $hardwareModel = new $className();
+                $hardwareNcModel = new $classNcName();
+            }
+            $model = new Materials();
+        }
+        else//update
+        {
+            $model = Materials::findOne($mdlModifyMaterial->material_id);
+            $oldIsFirstMfr = $model->is_first_mfr;
+            if($tableName != '')//如果是结构的就不用向研发库里导入
+            {
+                $mfrTemp = ' ';
+                if(!empty($model->manufacturer))
+                    $mfrTemp=MaterialEncodeRule::findOne($model->manufacturer)->name;
+                $hardwareModel = $className::findOne(['Mfr_part_number'=>$model->mfr_part_number,
+                    'Manufacturer'=>$mfrTemp]);
+                $hardwareNcModel = $classNcName::findOne(['Mfr_part_number'=>$model->mfr_part_number,
+                    'Manufacturer'=>$mfrTemp]);
+            }
+        }
+
+        if(!self::commitMaterials($isCreate,$model,$mdlModifyMaterial))
+        {
+            $message = '提交到物料出错';
+            return false;
+        }
+        if($tableName == '')//如果是结构的就结束了！
+            return true;
+        if($isCreate)
+        {
+            if($mdlModifyMaterial->is_first_mfr == 0)//新增时要看是不是在一供位置出现
+                return true;
+        }
+        else//如果是更新，根据是不是一供处理研发库
+        {
+            //更新前的值：0不是一供;1是一供     更新后的值：0不是一供;1是一供
+            if($oldIsFirstMfr==0&&$mdlModifyMaterial->is_first_mfr == 0)
+                return true;
+            else if($oldIsFirstMfr==0&&$mdlModifyMaterial->is_first_mfr == 1)
+            {
+                $hardwareModel = new $className();
+                $hardwareNcModel = new $classNcName();
+            }
+            else if($oldIsFirstMfr==1&&$mdlModifyMaterial->is_first_mfr == 0)
+            {
+                if(empty($hardwareModel)||empty($hardwareNcModel))
+                {
+                    $message = '研发库里不存在这科料';
+                    return false;
+                }
+                if($hardwareModel->delete()&&$hardwareNcModel->delete())
+                    return true;
+                else
+                {
+                    $message = '同步到研发库出错';
+                    return false;
+                }
+            }
+        }
+        //提取二三四供的信息
+        $data234Mfr = [2=>['mfrPartNo'=>'','zcPartNo'=>'','mfr'=>'','des'=>''],3=>['mfrPartNo'=>'','zcPartNo'=>'','mfr'=>'','des'=>''],
+            4=>['mfrPartNo'=>'','zcPartNo'=>'','mfr'=>'','des'=>'']];
+
+        if(!empty($model->manufacturer2_id))
+        {
+            $dataTemp = Materials::findOne($model->manufacturer2_id);
+            $data234Mfr[2]['mfrPartNo']=$dataTemp->mfr_part_number;
+            $data234Mfr[2]['zcPartNo']=$dataTemp->zc_part_number;
+            $data234Mfr[2]['des']=$dataTemp->description;
+            $data234Mfr[2]['mfr']=$dataTemp->manufacturer1->name;
+        }
+        if(!empty($model->manufacturer3_id))
+        {
+            $dataTemp = Materials::findOne($model->manufacturer3_id);
+            $data234Mfr[3]['mfrPartNo']=$dataTemp->mfr_part_number;
+            $data234Mfr[3]['zcPartNo']=$dataTemp->zc_part_number;
+            $data234Mfr[3]['des']=$dataTemp->description;
+            $data234Mfr[3]['mfr']=$dataTemp->manufacturer1->name;
+        }
+        if(!empty($model->manufacturer4_id))
+        {
+            $dataTemp = Materials::findOne($model->manufacturer4_id);
+            $data234Mfr[4]['mfrPartNo']=$dataTemp->mfr_part_number;
+            $data234Mfr[4]['zcPartNo']=$dataTemp->zc_part_number;
+            $data234Mfr[4]['des']=$dataTemp->description;
+            $data234Mfr[4]['mfr']=$dataTemp->manufacturer1->name;
+        }
+        $Automotive = '';
+        if($model->vehicle_standard != 3&&isset($model->vehicle_standard))
+            $Automotive = ModifyMaterial::VEHICLE_STANDARD[$model->vehicle_standard];
+
+        //如果选为禁用，要让原理图路径不对
+
+        $schematicPart = $model->schematic_part;
+        if($model->recommend_purchase == 3)//选的是禁用的话，把开头的E去掉
+            $schematicPart = substr($schematicPart,1);
+
+        //同步不NC的数据
+        $hardwareModel->setAttributes([
+            "Assy_Level"=>$model->assy_level,
+            "Purchase_Level"=>$model->purchase_level,
+            "Mfr_part_number"=>$model->mfr_part_number,
+            "Description"=>$model->description,
+            "Allegro_PCB_Footprint"=>$model->pcb_footprint,
+            "Manufacturer"=>empty($model->manufacturer)?" ":MaterialEncodeRule::findOne($model->manufacturer)->name,
+            "zc_part_number"=>$model->zc_part_number,
+            "2Mfr_part_number"=>$data234Mfr[2]['mfrPartNo'],
+            "2zc_part_number"=>$data234Mfr[2]['zcPartNo'],
+            "2Manufacturer"=>$data234Mfr[2]['mfr'],
+            "2Description"=>$data234Mfr[2]['des'],
+            "3Mfr_part_number"=>$data234Mfr[3]['mfrPartNo'],
+            "3zc_part_number"=>$data234Mfr[3]['zcPartNo'],
+            "3Manufacturer"=>$data234Mfr[3]['mfr'],
+            "3Description"=>$data234Mfr[3]['des'],
+            "4Mfr_part_number"=>$data234Mfr[4]['mfrPartNo'],
+            "4zc_part_number"=>$data234Mfr[4]['zcPartNo'],
+            "4Manufacturer"=>$data234Mfr[4]['mfr'],
+            "4Description"=>$data234Mfr[4]['des'],
+            "Version"=>date("Y-m-d H:i:s",time()),
+            "Automotive"=>$Automotive,
+            "Part_type"=>$partTypeName,
+            "Value"=>$model->value,
+            "Schematic_part"=>$schematicPart,
+//            "Datasheet"=>"",
+//            "Price"=>$model->price,
+            "recommend_purchase"=>ModifyMaterial::RECOMMEND_PURCHASE[$model->recommend_purchase],
+            "minimum_packing_quantity"=>$model->minimum_packing_quantity,
+            "lead_time"=>$model->lead_time,
+        ]);
+        if(!$hardwareModel->save())
+        {
+            $message = '同步到研发库出错';
+            return false;
+        }
+
+        //同步NC数据
+        $hardwareNcModel->setAttributes([
+            "Assy_Level"=>$model->assy_level,
+            "Purchase_Level"=>$model->purchase_level,
+            "Mfr_part_number"=>$model->mfr_part_number,
+            "Description"=>$model->description,
+            "Allegro_PCB_Footprint"=>$model->pcb_footprint,
+            "Manufacturer"=>empty($model->manufacturer)?" ":MaterialEncodeRule::findOne($model->manufacturer)->name,
+            "zc_part_number"=>$model->zc_part_number,
+            "2Mfr_part_number"=>$data234Mfr[2]['mfrPartNo'],
+            "2zc_part_number"=>$data234Mfr[2]['zcPartNo'],
+            "2Manufacturer"=>$data234Mfr[2]['mfr'],
+            "2Description"=>$data234Mfr[2]['des'],
+            "3Mfr_part_number"=>$data234Mfr[3]['mfrPartNo'],
+            "3zc_part_number"=>$data234Mfr[3]['zcPartNo'],
+            "3Manufacturer"=>$data234Mfr[3]['mfr'],
+            "3Description"=>$data234Mfr[3]['des'],
+            "4Mfr_part_number"=>$data234Mfr[4]['mfrPartNo'],
+            "4zc_part_number"=>$data234Mfr[4]['zcPartNo'],
+            "4Manufacturer"=>$data234Mfr[4]['mfr'],
+            "4Description"=>$data234Mfr[4]['des'],
+            "Version"=>date("Y-m-d H:i:s",time()),
+            "Automotive"=>$Automotive,
+            "Part_type"=>$partTypeName,
+            "Value"=>"NC(".$model->value.")",
+            "Schematic_part"=>$schematicPart,
+//            "Datasheet"=>$model->datasheet,
+//            "Price"=>$model->price,
+            "recommend_purchase"=>ModifyMaterial::RECOMMEND_PURCHASE[$model->recommend_purchase],
+            "minimum_packing_quantity"=>$model->minimum_packing_quantity,
+            "lead_time"=>$model->lead_time,
+        ]);
+        if(!$hardwareNcModel->save())
+        {
+            $message = '同步到研发NC库出错';
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 中间物料库的数据提交到大物料库上（如：ModifyMaterial(1)-->>Materials(1)）
+     */
+    public static function commitMaterials($isCreate,$material,$mdfMaterial)
+    {
+        $material->assy_level = $mdfMaterial->assy_level;
+        $material->purchase_level = $mdfMaterial->purchase_level;
+        $material->mfr_part_number = $mdfMaterial->mfr_part_number;
+        $material->description = $mdfMaterial->description;
+        $material->pcb_footprint = $mdfMaterial->pcb_footprint;
+        $material->manufacturer = $mdfMaterial->manufacturer;
+        $material->zc_part_number = $mdfMaterial->zc_part_number;
+        $material->date_entered = $mdfMaterial->date_entered;
+        $material->vehicle_standard = $mdfMaterial->vehicle_standard;
+        $material->part_type = $mdfMaterial->part_type;
+        $material->value = $mdfMaterial->value;
+        $material->schematic_part = $mdfMaterial->schematic_part;
+        $material->price = $mdfMaterial->price;
+        $material->recommend_purchase = $mdfMaterial->recommend_purchase;
+        $material->minimum_packing_quantity = $mdfMaterial->minimum_packing_quantity;
+        $material->lead_time = $mdfMaterial->lead_time;
+        $material->manufacturer2_id = $mdfMaterial->manufacturer2_id;
+        $material->manufacturer3_id = $mdfMaterial->manufacturer3_id;
+        $material->manufacturer4_id = $mdfMaterial->manufacturer4_id;
+        $material->material_id = $mdfMaterial->material_id;
+        $material->is_first_mfr = $mdfMaterial->is_first_mfr;
+        $material->remark = $mdfMaterial->remark;
+        $material->car_number = $mdfMaterial->car_number;
+        $material->part_name = $mdfMaterial->part_name;
+        $material->unit = $mdfMaterial->unit;
+        if(!empty($mdfMaterial->parent_id))
+            $material->parent_id = $mdfMaterial->parent_id;
+        if($material->save()) {
+            if(empty($mdfMaterial->parent_id)){
+                $material->parent_id = $material->material_id;
+                if(!$material->save()){
+                    return false;
+                }
+            }
+            //把新增的，要把material_attachment表的物料ID加上数据
+            MaterialAttachment::updateAll(['material_id'=>$material->material_id],['modify_material_id'=>$mdfMaterial->id]);
+            return true;
+        }
+        return false;
+    }
+
+
+}

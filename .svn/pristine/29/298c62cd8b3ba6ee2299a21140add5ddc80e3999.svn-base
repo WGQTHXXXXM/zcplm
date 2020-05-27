@@ -1,0 +1,376 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use backend\models\User;
+use yii\behaviors\TimestampBehavior;
+use common\components\CommonFunc;
+use yii\bootstrap\Html;
+
+/**
+ * This is the model class for table "user_task".
+ *
+ * @property integer $id
+ * @property integer $task_id
+ * @property integer $user_id
+ * @property integer $status
+ * @property string $remark
+ * @property integer $updated_at
+ * @property integer $created_at
+ * @property integer $approve_able
+ * @property integer $lvl
+ */
+class UserTask extends \yii\db\ActiveRecord
+{
+    /*********审批状态********/
+    const STATUS_APPROVE = [0=>'待审批',1=>'审批拒绝',2=>'审批同意',];
+    const STATUS_UNAPPROVE = 0;
+    const STATUS_REJECTED = 1;
+    const STATUS_APPROVED = 2;
+
+    //任务的备注
+    public $userTaskRemark;//审批的备注
+    public $userTaskStatus;//审批结果：过还是没过
+    public $taskStatus;//任务的状态：来判断‘待审批’是否可审，如果这个是被退回的，待审批的就不用审
+    public $recommend_purchase;//采购推荐级别
+    public $taskUser;
+    public $userTaskUser;
+    public $taskSub;
+    public $userTime;
+
+    //研发用的表，根据二级选择相应的表
+    public static $tableName = [
+        "res"=>"frontend\\models\\ZcRes",
+        "cap"=>"frontend\\models\\ZcCap",
+        "ind"=>"frontend\\models\\ZcInd",
+        "bead"=>"frontend\\models\\ZcBead",
+        "diode"=>"frontend\\models\\ZcDiode",
+        "triode"=>"frontend\\models\\ZcTriode",
+        "mos"=>"frontend\\models\\ZcMos",
+        "fuse"=>"frontend\\models\\ZcFuse",
+        "conn"=>"frontend\\models\\ZcConn",
+        "cry"=>"frontend\\models\\ZcCrystalOscillator",
+        "spring"=>"frontend\\models\\ZcSpring",
+        "buzzer"=>"frontend\\models\\ZcBuzzer",
+        "relay"=>"frontend\\models\\ZcRelay",
+        "analog ic"=>"frontend\\models\\ZcAnalogIc",
+        "power ic"=>"frontend\\models\\ZcPowerIc",
+        "phy"=>"frontend\\models\\ZcPhy",
+        "memory"=>"frontend\\models\\ZcMemory",
+        "video"=>"frontend\\models\\ZcVideo",
+        "ap"=>"frontend\\models\\ZcAp",
+        "sensor"=>"frontend\\models\\ZcSensor",
+        "module/ic"=>"frontend\\models\\ZcRfModuleIc",
+        "ant"=>"frontend\\models\\ZcRfAnt",
+        "battery"=>"frontend\\models\\ZcBattery",
+        "pcba"=>"frontend\\models\\ZcPcbPcba",
+        "pcb"=>"frontend\\models\\ZcPcbPcba",
+    ];
+
+    //提交的时间
+    //public $dateApprove;
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            TimestampBehavior::className(),
+        ];
+    }
+
+
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'user_task';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['task_id', 'user_id', 'status'], 'required'],
+            [['task_id', 'user_id', 'status', 'updated_at','created_at'], 'integer'],
+            [['remark'], 'string', 'max' => 255],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'task_id' => Yii::t('material', '任务ID'),
+            'user_id' => Yii::t('material', '用户ID'),
+            'status' => Yii::t('material', '审批或提交的状态'),
+            'remark' => Yii::t('material', '备注'),
+            'updated_at' => Yii::t('material', '更新时间'),
+            'created_at' => Yii::t('material', '更新时间'),
+        ];
+    }
+
+    //关联任务表
+    public function getTasks()
+    {
+        return $this->hasOne(Tasks::className(),['id'=>'task_id']);
+    }
+
+    //关联用户表
+    public function getUser()
+    {
+        return $this->hasOne(User::className(),['id'=>'user_id']);
+    }
+
+    public function getUserTaskUsername()
+    {
+        return $this->hasOne(User::className(),['id'=>'userTaskUser']);
+    }
+
+    /**
+     * 根据个人任务如果更新时是立即提交，提交类型（被退回还是待提交），来更改或新增审批数据
+     */
+    public static function saveTaskUpdate($taskType,$taskTypeId)
+    {
+        $arrApprovers = Tasks::getApprovers($taskType,$taskTypeId);
+
+
+        $task = Tasks::findOne(['type'=>$taskType,'type_id'=>$taskTypeId]);
+        if($task->status == Tasks::STATUS_REJECTED)//如果更改的这个任务是退回的，只把审批任务里的人同步一下并改下审批状态
+        {
+            if(!self::updateAll(['status'=>self::STATUS_UNAPPROVE],['task_id'=>$task->id]))
+                return false;
+        }
+        else if($task->status == Tasks::STATUS_UNCOMMIT)//如果没有提交这个任务(待提交)，要生成审批人审批
+        {
+            foreach($arrApprovers['approvers'] as $userId)//生成审批任务
+            {
+                $userTask = new self();
+                $userTask->task_id = $task->id;
+                $userTask->user_id = $userId;
+                $userTask->updated_at = time();
+                $userTask->status = self::STATUS_UNAPPROVE;
+                if(!$userTask->save())
+                    return false;
+            }
+        }
+        $task->status = Tasks::STATUS_COMMITED;
+        $task->remark = $_POST['taskRemark'];
+        if(!$task->save())
+            return false;
+        //发邮件
+        CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$arrApprovers['mail'],$task->name,$arrApprovers['code'],'user-task/index');
+
+        return true;
+
+    }
+
+    /**
+     * 给定任务id和用户id生成一个个人审批任务
+     */
+    static public function GenerateUserTask($arrApprover,$taskId,$able=1,$lvl=0)
+    {
+        foreach ($arrApprover as $userId)
+        {
+            $userTask = new UserTask();
+            $userTask->task_id = $taskId;
+            $userTask->user_id = $userId;
+            $userTask->updated_at = time();
+            $userTask->created_at = time();
+            $userTask->status = 0;
+            $userTask->approve_able = $able;
+            $userTask->lvl = $lvl;
+            if(!$userTask->save())
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * 浏览个人任务时，点击任务名称时，是查看还是更新
+     */
+    public function getALinkTask()
+    {
+        $mdlTask = $this->tasks;
+        if($mdlTask->type == $mdlTask::TASK_TYPE_MATERIAL||$mdlTask->type == $mdlTask::TASK_TYPE_MTR_APPROVER1||$mdlTask->type == $mdlTask::TASK_TYPE_MTR_APPROVER2)
+        {//说明是物料的ID
+            $mtrName = $mdlTask->modifyMaterial->mfr_part_number;
+            if(empty($mdlTask->modifyMaterial->mfr_part_number))
+                $mtrName = $mdlTask->modifyMaterial->part_name;
+            return Html::a($mdlTask->name.'：'.$mtrName,
+                    ['/modify-material/view','id'=>$mdlTask->type_id,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_ECR1||$mdlTask->type == $mdlTask::TASK_TYPE_ECR2||
+            $mdlTask->type == $mdlTask::TASK_TYPE_ECR3||$mdlTask->type == $mdlTask::TASK_TYPE_ECR4)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->ecr->serial_number,
+                ['/ecr/view','id'=>$mdlTask->type_id,'type'=>$mdlTask->type,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_ECN1||$mdlTask->type == $mdlTask::TASK_TYPE_ECN2||
+            $mdlTask->type == $mdlTask::TASK_TYPE_ECN3||$mdlTask->type == $mdlTask::TASK_TYPE_ECN4)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->ecn->serial_number,
+                    ['/ecn/view','id'=>$mdlTask->type_id,'type'=>$mdlTask->type,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_BOM_UPLOAD)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->bomsParent->material->zc_part_number,
+                    ['/boms/upload-view','id'=>$mdlTask->bomsParent->parent_id,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_PROJECT_FILE_UPLOAD)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->projectProcess->name,
+                ['/project-attachment/view','id'=>$mdlTask->type_id,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_MTR_FILE_UPLOAD)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->materialAttachment->name,
+                ['/projects/mtr-file-view','id'=>$mdlTask->type_id,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_QSM)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->qsmAttachment->name,
+                ['/quality-system-manage/upload-view','id'=>$mdlTask->type_id,'idUserTask'=>$this->id]);
+        }
+        else
+        {
+            var_dump($mdlTask->type);
+            echo '去Tasks::getAlinkTask()增加新任务的连接';die;
+        }
+    }
+
+    /*
+     * 任务退回
+     */
+    public function rejectedtask()
+    {
+        $this->updated_at = time();
+        $data = current($_POST['UserTask']);//表单数据
+        $this->remark = $data['userTaskRemark'];
+        //把当前任务退回
+        $mdlTask = Tasks::findOne($this->task_id);
+        $mdlTask->status = Tasks::STATUS_REJECTED;//任务退回
+        $this->status = UserTask::STATUS_REJECTED;//审批拒绝
+        if($this->save()&&$mdlTask->save())//保存状态
+        {
+            if ($mdlTask->type == Tasks::TASK_TYPE_ECR1||$mdlTask->type == Tasks::TASK_TYPE_ECR2||
+                $mdlTask->type == Tasks::TASK_TYPE_ECR3||$mdlTask->type == Tasks::TASK_TYPE_ECR4)//如果是ECN退回
+            {
+                $endId = Ecn::findOne(['ecr_id'=>$mdlTask->type_id])->id;
+                if(!ExtBomsParent::rejectEcn($endId))
+                    return ['status'=>false,'msg'=>'处理bom表时出错'];
+            }else if($mdlTask->type == Tasks::TASK_TYPE_MATERIAL||
+                $mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER1||
+                $mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER2)//如果是物料被退回
+            {
+                if(!UserTask::updateAll(['approve_able'=>0],['task_id'=>$mdlTask->id]))
+                    return ['status'=>false,'msg'=>'更新审批表时出错'];
+                $mdlTask->type = Tasks::TASK_TYPE_MTR_APPROVER1;
+                if(!$mdlTask->save())
+                    return ['status'=>false,'msg'=>'更新任务表时出错'];
+            }else if($mdlTask->type == Tasks::TASK_TYPE_MTR_FILE_UPLOAD){
+                $mdlTemp = MaterialAttachment::findOne($mdlTask->type_id);
+                $count = MaterialAttachment::find()->where(['path'=>$mdlTemp->path])->count();
+                if($count==1&&file_exists($mdlTemp->path))
+                    unlink($mdlTemp->path);
+                UserTask::updateAll(['approve_able'=>0],['task_id'=>$this->task_id,'lvl'=>$this->lvl]);
+                //退回的审批人发邮件不用封装的方法，不好实现
+                $arrApprovers['approvers'] = UserTask::find()
+                    ->where(['task_id'=>$mdlTask->type_id,'approve_able'=>1,'lvl'=>$this->lvl])->select('user_id')->column();
+                array_splice($arrApprovers['approvers'],array_search(Yii::$app->user->id,$arrApprovers['approvers']),1);
+                $arrApprovers['mail'] = User::find()->select('email')->where(['in','id',$arrApprovers['approvers']])->column();
+                $arrApprovers['code'] = MaterialAttachment::findOne($mdlTask->type_id)->name;
+                $arrApprovers['mail']['author'] = User::findOne($mdlTask->user_id)->email;
+
+                CommonFunc::sendMail(CommonFunc::APPROVE_REJECT,$arrApprovers['mail'],$mdlTask->name,$arrApprovers['code'],'user-task/index');
+                return ['status'=>true,'msg'=>'审批成功，任务已经被退回'];
+            }else if($mdlTask->type == Tasks::TASK_TYPE_QSM){
+                $mdlTemp = QsmAttachment::findOne($mdlTask->type_id);
+                if(file_exists($mdlTemp->path))
+                    unlink($mdlTemp->path);
+                UserTask::updateAll(['approve_able'=>0],['task_id'=>$this->task_id,'lvl'=>$this->lvl]);
+                //退回的审批人发邮件不用封装的方法，不好实现
+                $arrApprovers['approvers'] = UserTask::find()
+                    ->where(['task_id'=>$mdlTask->type_id,'approve_able'=>1,'lvl'=>$this->lvl])->select('user_id')->column();
+                array_splice($arrApprovers['approvers'],array_search(Yii::$app->user->id,$arrApprovers['approvers']),1);
+                $arrApprovers['mail'] = User::find()->select('email')->where(['in','id',$arrApprovers['approvers']])->column();
+                $arrApprovers['code'] = QsmAttachment::findOne($mdlTask->type_id)->name;
+                $arrApprovers['mail']['author'] = User::findOne($mdlTask->user_id)->email;
+
+                CommonFunc::sendMail(CommonFunc::APPROVE_REJECT,$arrApprovers['mail'],$mdlTask->name,$arrApprovers['code'],'user-task/index');
+                return ['status'=>true,'msg'=>'审批成功，任务已经被退回'];
+            }
+        }
+        $arrApprovers = Tasks::getApprovers($mdlTask->type,$mdlTask->type_id,true,$mdlTask->user_id);
+        CommonFunc::sendMail(CommonFunc::APPROVE_REJECT,$arrApprovers['mail'],$mdlTask->name,$arrApprovers['code'],'user-task/index');
+        return ['status'=>true,'msg'=>'审批成功，任务已经被退回'];
+    }
+
+    /*
+     * 任务通过
+     */
+    public function passTask():array
+    {
+        $message='提交出错';//返回的消息
+        $data = current($_POST['UserTask']);//表单数据
+        $mdlTask = Tasks::findOne($this->task_id);//查找到任务，让任务通过
+        //如果是物料的三级审批，并且是采购的审批，要把采购推荐级别的数据保存起来
+        if(isset($data['recommend_purchase'])){
+            $mdlMdfMtr = ModifyMaterial::findOne($mdlTask->type_id);
+            $mdlMdfMtr->recommend_purchase = $data['recommend_purchase'];
+            $mdlMdfMtr->approver1 =0;$mdlMdfMtr->approver2 = 0;$mdlMdfMtr->approver3dcc =0;$mdlMdfMtr->approver3purchase = 0;//这两个不可以为空，要不报错。先添一个
+            if(!$mdlMdfMtr->save())
+                return ['status'=>false,'msg'=>'改变采购推荐级别时出错'];
+        }
+        //把所有审批人的状态找出来
+        if($mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER1)
+        {
+            $appMtr = MaterialApprover::findOne(['material_id'=>$mdlTask->type_id]);//找到一级的审批人
+            $mdlUserTaskAll = UserTask::find()->select('status,id')->where(['user_id'=>$appMtr->approver1,'task_id'=>$this->task_id])->all();
+        }
+        else if($mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER2)
+        {
+            $appMtr = MaterialApprover::findOne(['material_id'=>$mdlTask->type_id]);//找到二级的审批人
+            $mdlUserTaskAll = UserTask::find()->select('status,id')->where(['user_id'=>$appMtr->approver2,'task_id'=>$this->task_id])->all();
+        }
+        else
+            $mdlUserTaskAll = UserTask::find()->select('status,id')->where(['task_id'=>$this->task_id,'lvl'=>$this->lvl])->all();
+        //如果审批同意，要看看其它审批人是否也都同意
+        foreach ($mdlUserTaskAll as $val)
+        {
+            if($val->id == $this->id)//跳过与自己检测
+                continue;
+            else if($val->status != UserTask::STATUS_APPROVED)//如果有一个拒绝就只改自己的审批状态，然后退出
+            {
+                $this->status = UserTask::STATUS_APPROVED;//审批同意
+                if($this->save())
+                    return ['status'=>true,'msg'=>'你的审批已成功，等待其它人审批！'];
+                else
+                    return ['status'=>false,'msg'=>'保存user_task时出错'];
+            }
+        }
+        //说明大家都审批通过
+        $mdlTask->status = Tasks::STATUS_APPROVED;
+//        if($mdlTask->type == Tasks::TASK_TYPE_ECR4)//如果是ECN通过了要显示“是否继续ECN”
+//            $mdlTask->status = Tasks::STATUS_CREATE_ECN;
+        $this->status = UserTask::STATUS_APPROVED;//审批同意
+
+        if($this->save()&&$mdlTask->save())//保存状态,然后再保存任务的内容
+            return $mdlTask->doPassTask($mdlTask,$this);
+        return ['status'=>false,'msg'=>'保存审批表和任务表时出错'];
+
+    }
+
+
+
+///////////////////////////////////
+}

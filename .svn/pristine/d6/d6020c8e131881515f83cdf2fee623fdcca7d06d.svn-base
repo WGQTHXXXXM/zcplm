@@ -1,0 +1,39 @@
+<?php
+
+use yii\widgets\ActiveForm;
+use kartik\file\FileInput;
+use yii\helpers\Html;
+
+$this->title = '导入BOM';
+$this->params['breadcrumbs'][] = $this->title;
+?>
+
+    <h1><?= $this->title ?></h1>
+    <br>
+    <br>
+    <br>
+<?php
+    if($res == true)
+        echo '成功';
+    else
+    {
+        echo '<h1>上传失败</h1>';
+        if(!empty($matchQtyPos))
+        {
+            echo '<h4>数量和位置不匹配的智车料号：</h4>';
+            foreach ($matchQtyPos as $val)
+            {
+                echo "<h5>$val</h5>";
+            }
+        }
+        if(!empty($emptyZcPartNo))
+        {
+            echo '<br><br><h4>不存在智车料号的厂家料号：</h4>';
+            foreach ($emptyZcPartNo as $val)
+            {
+                echo "<h5>$val</h5>";
+            }
+        }
+
+    }
+?>

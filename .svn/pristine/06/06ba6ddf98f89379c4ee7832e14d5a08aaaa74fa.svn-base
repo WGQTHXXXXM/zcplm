@@ -1,0 +1,53 @@
+<?php
+
+namespace frontend\controllers;
+
+use Yii;
+use frontend\models\SearchForm;
+use frontend\models\BomsParent;
+use yii\data\ActiveDataProvider;
+
+class SearchController extends \yii\web\Controller
+{
+    public function actionBomIndex()
+    {
+        $model = new SearchForm();
+
+        return $this->render('bom-index', [
+            'model' => $model,
+        ]);
+    }
+
+    /**
+     * @return string
+     */
+    public function actionBomView()
+    {
+        $model = new SearchForm();
+        //搜索BOM表里所有满足搜索条件，并且有子级的物料
+        if ($model->load(Yii::$app->request->post()) && $model->validate()) {
+            //按照搜索条件查出所有满足条件的物料
+            $query = BomsParent::find()
+              //  ->innerJoinWith(['bom2 AS b2']) //查出有子级的所有物料数组
+                ->joinWith(['material'])
+                ->joinWith(['user'])
+                ->where(['like', 'materials.zc_part_number', $model->serial_number])
+              //  ->andWhere(['=', 'boms.expire_date', Boms::EXPIRE_DATE_MAX])
+              //  ->orWhere(['=', 'boms.expire_date', Boms::EXPIRE_DATE_TEMPORARY])
+                ->orderBy('materials.zc_part_number, boms_parent.parent_version')
+                ->indexBy('parent_id');
+
+            $dataProvider = new ActiveDataProvider([
+                'query' => $query,
+                'pagination' => [
+                    'pageSize' => 20,
+                ],
+            ]);
+
+            return $this->render('bom-view', [
+                'dataProvider' => $dataProvider,
+                'serial_number' => $model->serial_number,
+            ]);
+        }
+    }
+}

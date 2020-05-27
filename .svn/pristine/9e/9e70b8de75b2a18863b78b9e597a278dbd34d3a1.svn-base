@@ -1,0 +1,146 @@
+<?php
+
+namespace backend\controllers;
+
+use Yii;
+use backend\models\Approver;
+use backend\models\ApproverSearch;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use backend\models\User;
+use frontend\models\Tasks;
+
+/**
+ * ApproverController implements the CRUD actions for Approver model.
+ */
+class ApproverController extends Controller
+{
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all Approver models.
+     * @return mixed
+     */
+    public function actionIndex($typeid)
+    {
+        $searchModel = new ApproverSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+        //只显示该有的审批类别
+        $dataProvider->query->where(['type'=>$typeid]);
+        //显示标题
+        $type = $_GET['typeid'];
+        $title ='';
+        if($type == Tasks::TASK_TYPE_BOM_UPLOAD)
+            $title = 'BOM上传审批人';
+        else if($type == Tasks::TASK_TYPE_MATERIAL)
+            $title = "修改物料审批人";
+        else if($type == Tasks::TASK_TYPE_PROJECT_FILE_UPLOAD)
+            $title = "项目管理文件上传";
+        else if($type == 2)
+            $title = "ECR审批人";
+        else if($type == 3)
+            $title = "ECN审批人";
+
+        return $this->render('index', [
+            'dataProvider' => $dataProvider,
+            'title'=>$title,
+        ]);
+    }
+
+    /**
+     * Displays a single Approver model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        return $this->render('view', [
+            'model' => $this->findModel($id),
+        ]);
+    }
+
+    /**
+     * Creates a new Approver model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate()
+    {
+        $model = new Approver();
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            Yii::$app->getSession()->setFlash('success','新增成功');
+            return $this->redirect(['index', 'typeid' => $_GET['typeid']]);
+        } else {
+
+            return $this->render('create', [
+                'model' => $model,
+                'userDate'=>User::getArrUserAndId(),
+            ]);
+        }
+    }
+
+    /**
+     * Updates an existing Approver model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            Yii::$app->getSession()->setFlash('success','更新成功');
+            return $this->redirect(['index', 'typeid' => $_GET['typeid']]);
+        } else {
+            return $this->render('update', [
+                'model' => $model,
+                'userDate'=>User::getArrUserAndId(),
+            ]);
+        }
+    }
+
+    /**
+     * Deletes an existing Approver model.
+     * If deletion is                         successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index?typeid='.$_GET['typeid']]);
+    }
+
+    /**
+     * Finds the Approver model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return Approver the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = Approver::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+}

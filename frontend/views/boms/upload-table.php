@@ -1,0 +1,453 @@
+<?php
+
+use frontend\web\JQWidgetsAsset;
+use yii\helpers\Url;
+use kartik\dialog\Dialog;
+use yii\bootstrap\Modal;
+
+JQWidgetsAsset::register($this);
+?>
+    <div id="treegridbom"></div>
+    <h5 style="color: red">备注：更新后返回到【任务列表】- [任务状态]，点击"被退回”位置，选择“上传"并"确认"。
+    </h5>
+<?php
+$zc_part_number = Yii::t('material', 'Zhiche Part Number');
+$zc_part_number2 = Yii::t('material', 'Second Zhiche Part Number');
+$zc_part_number3 = Yii::t('material', 'third Zhiche Part Number');
+$zc_part_number4 = Yii::t('material', 'fourth Zhiche Part Number');
+$mfr_part_number = Yii::t('material', 'Manufacturer Part Number');
+$mfr_part_number2 = Yii::t('material', 'Second Manufacturer Part Number');
+$mfr_part_number3 = Yii::t('material', 'third Manufacturer Part Number');
+$mfr_part_number4 = Yii::t('material', 'fourth Manufacturer Part Number');
+$manufacturer = Yii::t('material', 'Manufacturer');
+$manufacturer2 = Yii::t('bom', 'Second Manufacturer');
+$manufacturer3 = Yii::t('bom', 'Third Manufacturer');
+$manufacturer4 = Yii::t('bom', 'Fourth Manufacturer');
+$purchase_level = Yii::t('material', 'Purchase Level');
+$part_name = Yii::t('material', 'Part Name');
+$description = Yii::t('material', 'Description');
+$unit = Yii::t('material', 'Unit');
+$pcb_footprint = Yii::t('material', 'Pcb Footprint');
+$qty = Yii::t('bom', 'Qty');
+$ref_no = Yii::t('bom', 'Reference No.');
+$assy_level = Yii::t('bom', 'Assy Level');
+$status = Yii::t('bom', 'Status');
+$notRelease = Yii::t('bom', 'Not Release');
+$release = Yii::t('bom', 'Release');
+
+/////////////
+$getBomData = Url::toRoute("/boms/upload-date?pBomId=".$_GET['id']);//上传bom的零件
+$getPartData = Url::toRoute("/modify-material/get-part-data"); //查看是否有这个料
+$createPart = Url::toRoute("/boms/create-part");//新加零件
+$updatePart = Url::toRoute("/boms/update-part");//更新零件
+$deletePart = Url::toRoute("/boms/delete-part");//删除零件
+$parentView = Url::toRoute("/boms/bom-parent-view");//查看BomParent
+$childView = Url::toRoute("/boms/bom-child-view");//查看BomChild
+
+//弹框控件，其它默认，prompt框改下默认的配置
+echo Dialog::widget([
+    'dialogDefaults'=>[
+
+        Dialog::DIALOG_CONFIRM => [
+            'draggable' => true,
+            'closable' => true,
+        ],
+
+    ]
+]);
+////模态框
+Modal::begin([
+    'id' => 'mtrview-modal',
+    'header' => '<h3 class="modal-title">查看</h3>',
+    'footer' => '<a href="#" class="btn btn-primary" data-dismiss="modal">Close</a>',
+]);
+Modal::end();
+
+
+
+$Js = <<<JS
+    //弹出详情按钮
+    function childView(id) {
+        $.get('{$childView}', { id:id },
+            function (data) {
+                $('.modal-body').html(data);
+            } 
+        );
+    }
+    //弹出详情按钮
+    function parentView(id) {
+        $.get('{$parentView}', { id:id },
+            function (data) {
+                $('.modal-body').html(data);
+            } 
+        );
+    }
+
+JS;
+$this->registerJs($Js,\yii\web\View::POS_BEGIN);
+
+///////////////js代码//////////////////
+$js=<<<JS
+    var newRowID = null;//新建行的号
+    var selRowId=null;//选择的行号
+    var CellBgvalue = '';//格子改变前的值
+    var CellBgQty = '';
+    var CellBgPos = '';
+    //点击查看详情
+    
+    
+
+    
+    var cellsRendererFunctionView = function (row, dataField, cellValue, rowData, cellText) {
+        console.log(rowData);
+        if(rowData.lvl == 0)
+            return '<a class="material-view1" " data-target="#mtrview-modal" data-toggle="modal" onclick="parentView('
+                +rowData.id+')" href="#">'+cellText+'</a>';
+        else
+            return '<a class="material-view1" " data-target="#mtrview-modal" data-toggle="modal" onclick="childView('
+                +rowData.id+')" href="#">'+cellText+'</a>';
+            
+    };
+        
+    var source = {//对象————生成表格的数据对象
+        dataType: "json",
+        dataFields: [
+            { name: 'id', type: 'number' },//对应行号和bomschild的id号
+            { name: 'mtrid', type: 'number' },//物料ID
+            { name: 'zc_part_number', type: 'string' },
+            { name: 'lvl', type: 'number' },
+            { name: 'purchase_level', type: 'string' },
+            { name: 'description', type: 'string' },
+            { name: 'unit', type: 'string' },
+            { name: 'pcb_footprint', type: 'string' },
+            { name: 'qty', type: 'number' },
+            { name: 'ref_no', type: 'string' },
+            { name: 'mfr_part_number', type: 'string' },
+            { name: 'manufacturer', type: 'string' },
+            { name: 'zc_part_number2', type: 'string' },
+            { name: 'mfr_part_number2', type: 'string' },
+            { name: 'manufacturer2', type: 'string' },
+            { name: 'zc_part_number3', type: 'string' },
+            { name: 'mfr_part_number3', type: 'string' },
+            { name: 'manufacturer3', type: 'string' },
+            { name: 'zc_part_number4', type: 'string' },
+            { name: 'mfr_part_number4', type: 'string' },
+            { name: 'manufacturer4', type: 'string' },
+            { name: 'children', type: 'array' }
+        ],
+        hierarchy:
+        {
+            root: 'children'
+        },
+        id: 'id',
+        url: "$getBomData",
+        addRow: function (rowID, rowData, position, parentID, commit) {//重载添加行函数
+            newRowID = rowID;
+            commit(true);
+        }
+    };
+    //生成一个树表格控件 
+    var dataAdapter = new $.jqx.dataAdapter(source);
+    $("#treegridbom").jqxTreeGrid(
+    {
+        width: '100%',
+        height:'600px',
+        source: dataAdapter,
+        columnsResize: true,//列可以重定义大小
+        altRows: true,//隔行变色                  //换页时保存                失去焦点时保存      换选择时保存                  Esc时取消          回车保存 
+        editSettings: {/*editSingleCell: true,*/saveOnPageChange: true, saveOnBlur: true, saveOnSelectionChange: true, cancelOnEsc: true, saveOnEnter: true, editOnDoubleClick: true },
+        ready: function()//加载完html时运行
+        {
+            $("#treegridbom").jqxTreeGrid('expandAll');
+            $("#treegridbom").jqxTreeGrid('hideColumn','mtrid');
+        },
+        editable:'$isUpdate', //如果是更新可编辑，可显示工具条，可渲染工具条。查看时为false                                
+        showToolbar: '$isUpdate',//显示工具条
+        renderToolbar: function(toolBar)//渲染工具条
+        {
+            if(!'$isUpdate')
+                return;
+            //以下是添加工具条的按钮
+            var toTheme = function (className) {
+                if (theme == "") return className;
+                return className + " " + className + "-" + theme;
+            };
+
+            // appends buttons to the status bar.
+            var container = $("<div style='overflow: hidden; position: relative; height: 100%; width: 100%;'></div>");
+            var buttonTemplate = "<div style='float: left; padding: 3px; margin: 2px;'><div style='margin: 4px; width: 16px; height: 16px;'></div></div>";
+            var addButton = $(buttonTemplate);
+            var deleteButton = $(buttonTemplate);
+            container.append(addButton);
+            container.append(deleteButton);
+
+            toolBar.append(container);
+            addButton.jqxButton({cursor: "pointer", enableDefault: false, disabled: true, height: 25, width: 25 });
+            addButton.find('div:first').addClass(toTheme('jqx-icon-plus'));
+            addButton.attr('title','增加');
+            
+            deleteButton.jqxButton({ cursor: "pointer", disabled: true, enableDefault: false,  height: 25, width: 25 });
+            deleteButton.find('div:first').addClass(toTheme('jqx-icon-delete'));
+            deleteButton.attr('title','删除');
+            
+            //根据当前的操作（在选择，在编辑），来控制按钮是否有效
+            var updateButtons = function (action) {
+            switch (action) {
+                case "Select":
+                    addButton.jqxButton({ disabled: false });
+                    deleteButton.jqxButton({ disabled: false });
+                    break;
+                case "Unselect":
+                    addButton.jqxButton({ disabled: true });
+                    deleteButton.jqxButton({ disabled: true });
+                    break;
+                case "Edit":
+                    addButton.jqxButton({ disabled: true });
+                    deleteButton.jqxButton({ disabled: true });
+                    break;
+                case "End Edit":
+                    addButton.jqxButton({ disabled: false });
+                    deleteButton.jqxButton({ disabled: false });
+                    break;
+                }
+            };
+            //选择一行时记住这行id，可在它下面添加行或删除该行时用。
+            $("#treegridbom").on('rowSelect', function (event) {
+                selRowId = event.args.key;
+                updateButtons('Select');
+            });
+            
+            //编辑完该行时，认为是保存
+            $("#treegridbom").on('rowEndEdit', function (event) {
+                var args = event.args;
+                var rowKey = args.key;
+                var value = $.trim($("#treegridbom").jqxTreeGrid('getCellValue',rowKey,'zc_part_number'));//当前行的智车料号的值
+                var qty = $.trim($("#treegridbom").jqxTreeGrid('getCellValue',rowKey,'qty'));
+                var pos = $.trim($("#treegridbom").jqxTreeGrid('getCellValue',rowKey,'ref_no'));
+                var curID = $('#treegridbom').jqxTreeGrid('getCellValue',rowKey,'id');
+                //如果没有变化
+                if(qty == CellBgQty&&value==CellBgvalue&&pos==CellBgPos){
+                    krajeeDialog.alert('没有变化');
+                    return;
+                }
+                //验证输入的信息是否满足规则
+                if(value == ''){
+                    krajeeDialog.alert('智车料号不能为空');
+                    return;
+                }
+                //验证输入的信息是否满足规则
+                if(qty==''||qty != parseInt(qty)){
+                    $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'zc_part_number', CellBgvalue);
+                    krajeeDialog.alert('数量必须是数字');
+                    return;
+                }
+                //验证输入的信息是否满足规则
+                if(pos==''||pos!=pos.replace(/[^\w,，]/ig,'')){
+                    $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'zc_part_number', CellBgvalue);
+                    krajeeDialog.alert('位置必须是字母和逗号');
+                    return;
+                }
+                //查看数量和位置是否匹配
+                if((pos.split(',')).length != qty){
+                    krajeeDialog.alert('位置和数量不匹配');
+                    return;    
+                }
+                var mtrId = $("#treegridbom").jqxTreeGrid('getCellValue',rowKey,'mtrid');
+                //如果智车料号改变了，才去看这个料存不存在
+                if(value!=CellBgvalue)
+                {
+                    $.get('$getPartData',{zcPartNo:value},function(obj) {
+                        if(obj.status == 1){
+                            var mdlMtr = obj.data.model;
+                            setRow(rowKey,mdlMtr);//把物料的其它信息添加到行里
+                            //如果是更新的编辑处理
+                            if(curID == 0){//说明是增加
+                                createBom(args.row.parent.id,mdlMtr.material_id,qty,pos);
+                            }else{//说明是更新
+                                updateBom(selRowId,mdlMtr.material_id,qty,pos);
+                            }
+                        }else{
+                            krajeeDialog.alert('没有这个料');
+                            clearRow(rowKey);//如果没有这个料清空这行其它信息
+                        }
+                    },'json');
+                    return;
+                }
+                /////////////////////
+                if(curID == 0){//说明是增加
+                    createBom(args.row.parent.id,mtrId,qty,pos);
+                }else{//说明是更新
+                    updateBom(selRowId,mtrId,qty,pos);
+                }
+                updateButtons('End Edit');
+            });
+            
+            //编辑前事件，可记住改变前的值
+            $("#treegridbom").on('rowBeginEdit', function (event) {
+                CellBgvalue = $("#treegridbom").jqxTreeGrid('getCellValue',args.key,'zc_part_number');//保留当前的值
+                CellBgQty = $("#treegridbom").jqxTreeGrid('getCellValue',args.key,'qty');//保留当前的值
+                CellBgPos = $("#treegridbom").jqxTreeGrid('getCellValue',args.key,'ref_no');//保留当前的值
+                updateButtons('Edit');
+            });
+            //添加按钮的函数
+            addButton.click(function (event) {
+                if (!addButton.jqxButton('disabled')) {
+                    $("#treegridbom").jqxTreeGrid('expandRow', selRowId);
+                    // add new empty row.                         标志0是新添加的 
+                    $("#treegridbom").jqxTreeGrid('addRow', null, {id:0}, 'first', selRowId);
+                    // select the first row and clear the selection.
+                    $("#treegridbom").jqxTreeGrid('clearSelection');
+                    $("#treegridbom").jqxTreeGrid('selectRow', newRowID);
+                    // edit the new row.
+                    $("#treegridbom").jqxTreeGrid('beginRowEdit', newRowID);
+                    updateButtons('add');
+                }
+            });
+            //删除按钮的函数 
+            deleteButton.click(function () {
+                krajeeDialog.confirm('是否要删除所中项？', function (result) {
+                    if (result) 
+                    {
+                        if (!deleteButton.jqxButton('disabled')) {
+                            var arrSelect = [];//选中的放这里，准备删除
+                            var isLvl0 = 0;//是否是最高层，如果是最高级记录下，删除时要全删除掉
+                            var selection = $("#treegridbom").jqxTreeGrid('getSelection');
+                            if (selection.length > 1) {
+                                var keys = new Array();
+                                for (var i = 0; i < selection.length; i++) {
+                                    var tempRowNo = $("#treegridbom").jqxTreeGrid('getKey', selection[i]);
+                                    keys.push(tempRowNo);
+                                    arrSelect.push($("#treegridbom").jqxTreeGrid('getCellValue',tempRowNo,'id'));
+                                    if($("#treegridbom").jqxTreeGrid('getCellValue',tempRowNo,'lvl') ==0)//如果是最高级，记录下
+                                        isLvl0 = $("#treegridbom").jqxTreeGrid('getCellValue',tempRowNo,'id');
+                                }
+                                $("#treegridbom").jqxTreeGrid('deleteRow', keys);
+                            }
+                            else {
+                                if($("#treegridbom").jqxTreeGrid('getCellValue',selRowId,'lvl') ==0)//如果是最高级，记录下
+                                    isLvl0 = $("#treegridbom").jqxTreeGrid('getCellValue',selRowId,'id');
+                                arrSelect.push($("#treegridbom").jqxTreeGrid('getCellValue',selRowId,'id'));
+                                $("#treegridbom").jqxTreeGrid('deleteRow', selRowId);
+                            }
+                            //把记录的删除
+                            $.post('$deletePart',{arrSelect:arrSelect,isLvl0:isLvl0},function(obj) {
+                                if(obj.status != 0)
+                                    krajeeDialog.alert('删除成功');
+                                else
+                                    krajeeDialog.alert('删除失败');
+                            });
+                            updateButtons('delete');
+                        }
+                    }
+                });
+                
+            });
+        },
+        columns: [                                                          //代表这个字段不可以编辑
+            { text: '$zc_part_number', dataField: 'zc_part_number', width: 260,cellsRenderer: cellsRendererFunctionView},
+            { text: '$assy_level', dataField: 'lvl', width: 60 ,editable:false},
+            { text: '物料id', dataField: 'mtrid', width: 60 ,editable:false},
+            { text: '$purchase_level', dataField: 'purchase_level', width: 60 ,editable:false},
+            { text: '$description', dataField: 'description', width: 300 ,editable:false},
+            { text: '$pcb_footprint', dataField: 'pcb_footprint', width: 100 ,editable:false},
+            { text: '$qty', dataField: 'qty', width: 50 },
+            { text: '$unit', dataField: 'unit', width: 50 ,editable:false},
+            { text: '$ref_no', dataField: 'ref_no', width: 150 },
+            { text: '$mfr_part_number', dataField: 'mfr_part_number', width: 150 ,editable:false},
+            { text: '$manufacturer', dataField: 'manufacturer', width: 100 ,editable:false},
+            { text: '$zc_part_number2', dataField: 'zc_part_number2', width: 150 ,editable:false},
+            { text: '$mfr_part_number2', dataField: 'mfr_part_number2', width: 150 ,editable:false},
+            { text: '$manufacturer2', dataField: 'manufacturer2', width: 110 ,editable:false},
+            { text: '$zc_part_number3', dataField: 'zc_part_number3', width: 150 ,editable:false},
+            { text: '$mfr_part_number3', dataField: 'mfr_part_number3', width: 150 ,editable:false},
+            { text: '$manufacturer3', dataField: 'manufacturer3', width: 110 ,editable:false},
+            { text: '$zc_part_number4', dataField: 'zc_part_number4', width: 150 ,editable:false},
+            { text: '$mfr_part_number4', dataField: 'mfr_part_number4', width: 150 ,editable:false},
+            { text: '$manufacturer4', dataField: 'manufacturer4', width: 110,editable:false}
+        ]
+    });
+    
+    /**
+    * 功能：更改一行时给后台的数据
+    * @param cRowId：当前行号
+    * @param mtrId：物料id
+    * @param qty：数量
+    * @param pos：位置
+    */
+    function updateBom(cRowId,mtrId,qty,pos) {
+        $.post('$updatePart',{cRowId:cRowId,mtrId:mtrId,qty:qty,pos:pos},function(obj) {
+            if(obj.status != 0)
+                krajeeDialog.alert('更新成功');
+            else
+                krajeeDialog.alert('更新失败');
+        },'json');
+    }
+    
+    /**
+    * 功能：创建一行时给后台的数据
+    * @param pRowId：父行的行号
+    * @param mtrId：物料ID
+    * @param qty:数量
+    * @param pos：位置
+    */
+    function createBom(pRowId,mtrId,qty,pos) {
+        $.post('$createPart',{pRowId:pRowId,mtrId:mtrId,qty:qty,pos:pos},function(obj) {
+            if(obj.status != 0)
+            {
+                $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'id', obj.status);
+                krajeeDialog.alert('添加成功');
+            }
+            else
+                krajeeDialog.alert('添加失败');
+        },'json');
+    }
+    
+    //设定行值
+    function setRow(rowKey,model) 
+    {
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'lvl', 1);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'mtrid', model.material_id);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'purchase_level', model.purchase_level);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'description', model.description);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'unit', model.unit);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'pcb_footprint', model.pcb_footprint);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'mfr_part_number', model.mfr_part_number);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'manufacturer', model.manufacturer);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'zc_part_number2', model.zc_part_number2);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'mfr_part_number2', model.mfr_part_number2);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'manufacturer2', model.manufacturer2);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'zc_part_number3', model.zc_part_number3);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'mfr_part_number3', model.mfr_part_number3);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'manufacturer3', model.manufacturer3);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'zc_part_number4', model.zc_part_number4);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'mfr_part_number4', model.mfr_part_number4);
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'manufacturer4', model.manufacturer4);
+    }
+    
+    //清空行值
+    function clearRow(rowKey) {
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'zc_part_number', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'lvl', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'mtrid', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'purchase_level', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'description', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'unit', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'pcb_footprint', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'mfr_part_number', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'manufacturer', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'zc_part_number2', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'mfr_part_number2', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'manufacturer2', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'zc_part_number3', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'mfr_part_number3', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'manufacturer3', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'zc_part_number4', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'mfr_part_number4', '');
+        $("#treegridbom").jqxTreeGrid('setCellValue', rowKey, 'manufacturer4', '');
+    }    
+
+JS;
+
+$this->registerJs($js);
+
+?>

@@ -1,0 +1,67 @@
+<?php
+
+namespace frontend\models;
+
+use common\models\User;
+use Yii;
+
+/**
+ * This is the model class for table "approver".
+ *
+ * @property integer $user_id
+ * @property integer $type
+ * @property string $department
+ * @property integer $id
+ */
+class Approver extends \yii\db\ActiveRecord
+{
+
+    const TYPE_LEADERS_ECR = 3;
+    const TYPE_LEADERS_ECN = 2;
+
+    /**
+     * 获得某级的审批
+     */
+    public static function getApprovers($type)
+    {
+        $arrUser = self::find()->leftJoin('user','user.id=approver.user_id')
+            ->where(['approver.type'=>$type,'user.status'=>User::STATUS_ACTIVE])
+            ->select('user.username as username,user.id as id')->indexBy('id')->column();
+
+        return $arrUser;
+    }
+
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'approver';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['user_id', 'type', 'department'], 'required'],
+            [['user_id', 'type'], 'integer'],
+            [['department'], 'string', 'max' => 20],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'user_id' => Yii::t('material', '审批人'),
+            'type' => Yii::t('material', '审批种类'),
+            'department' => Yii::t('material', '审批部门'),
+            'id' => Yii::t('material', '主键'),
+        ];
+    }
+}

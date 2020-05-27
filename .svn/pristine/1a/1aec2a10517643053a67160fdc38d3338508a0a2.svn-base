@@ -1,0 +1,228 @@
+<?php
+
+namespace frontend\controllers;
+
+use Yii;
+use frontend\models\Attachments;
+use frontend\models\AttachmentsSearch;
+use frontend\models\Upload;
+use frontend\models\Materials;
+use yii\web\UploadedFile;
+use yii\web\NotFoundHttpException;
+use yii\helpers\Url;
+use yii\data\ActiveDataProvider;
+
+class AttachmentsController extends \yii\web\Controller
+{
+    /**
+     * Lists all Attachments models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+        $searchModel = new AttachmentsSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**物料界面点datasheet弹出模态框使下载
+     * @param $id
+     * @return string
+     */
+    public function actionDownloadDlg($id)
+    {
+        $query = Attachments::find()->where("material_id=".$id);
+        $attachments = new ActiveDataProvider([
+            'query' => $query,
+        ]);
+        $material = Materials::findOne($id);
+        return $this->renderAjax("download-dlg",['material' => $material,'attachments'=>$attachments]);
+    }
+
+
+
+    public function actionView($id)
+    {
+        $material = Materials::findOne($id);
+        $query = Attachments::find()->where(['material_id' => $id]);
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+        ]);
+        
+        
+        $model = new Upload();
+        $relationAttachments = Attachments::find()->where(['material_id' => $id])->asArray()->all();
+
+        // @param $p1 Array 需要预览的附件，是附件的一个集合
+        // @param $p2 Array 对应附件的操作属性，我们这里包括附件删除的地址和附件的id
+        $p1 = $p2 = [];
+        if (!$relationAttachments) { //加!号，使FileInput不显示初始内容
+            foreach ($relationAttachments as $k => $v) {
+                $p1[$k] = $v['attachment_url'];
+                $p2[$k] = [
+                    'caption' => substr($v['attachment_url'], strrpos($v['attachment_url'], '/')+1), //文件名（url去掉路径部分）
+                    // 要删除附件的地址
+                    'url' => Url::toRoute('/attachments/delete'),
+                    // 附件对应的附件id
+                    'key' => $v['attachment_id'],
+                ];
+            }
+        }
+
+        return $this->render('view', [
+            'material' => $material,
+            'dataProvider' => $dataProvider,
+            'model' => $model,
+            // other params
+            'p1' => $p1,
+            'p2' => $p2,
+            // 物料id
+            'id' => $id,
+        ]);
+    }
+
+    public function actionDownload($pathFile, $filename)
+    {
+        $pathFile = substr($pathFile, strpos($pathFile, '/')+1);
+        if (file_exists($pathFile)) {
+            return Yii::$app->response->sendFile($pathFile, $filename);
+        } else {
+            throw new NotFoundHttpException(Yii::t('common', "Can't find {filename} file.", ['filename' => $filename]));
+        }
+    }
+
+    public function actionAsyncUpload ()
+    {
+        // 物料ID
+        $id = Yii::$app->request->post('material_id');
+
+        // $p1 $p2是我们处理完附件之后需要返回的信息，其参数意义可参考上面的定义
+        $p1 = $p2 = [];
+
+
+        // 如果没有附件或者附件id非真，返回空
+        if (empty($_FILES['Upload']['name']) || empty($_FILES['Upload']['name']['upload_file']) || !$id) {
+            echo '{}';
+            return;
+        }
+
+        $model = new Upload();
+        $model->upload_file = UploadedFile::getInstances($model, 'upload_file');
+
+
+     //   if ($model->validate()) {
+            // 循环多个附件进行上传和上传后的处理
+            $i = 0;
+            foreach ($model->upload_file as $file)/*for ($i = 0; $i < count($_FILES['Upload']['name']['upload_file']); $i++)*/ {
+                // 上传之后的附件是可以进行删除操作的，我们为每一个物料成功的附件指定删除操作的地址
+                $url = Url::toRoute('/attachments/delete');
+
+                $dir = '../uploads/materials/'. $id .'/'; //路径包括物料ID，不同附件放在不同物料ID路径下
+                if (!is_dir($dir))
+                    mkdir($dir);
+                $fileName = $file->baseName . '.' . $file->extension;
+                $dir = $dir . $fileName;
+                $file->saveAs($dir);
+                // 调用附件接口上传后返回的附件地址，注意是可访问到的附件地址
+                $imageUrl = '../' . $dir;
+
+                // 保存附件信息（同物料id下，如同名文件不存在，则保存附件信息）
+                $count = Attachments::find()->where(['material_id' => $id, 'attachment_url' => $imageUrl])->count();
+                if ($count == 0) {
+                    $model_attachments = new Attachments();
+                    $model_attachments->material_id = $id;
+                    $model_attachments->attachment_url = $imageUrl;
+                    $key = 0;
+                    if ($model_attachments->save(false)) {
+                        $key = $model_attachments->attachment_id;
+                    }
+                } else {
+                    $model_attachments = Attachments::find()->where(['material_id' => $id, 'attachment_url' => $imageUrl])->one();
+                    $key = $model_attachments->attachment_id;
+                    $model_attachments->version++;
+                    $model_attachments->update(false);
+                }
+
+                // 这是一些额外的其他信息，如果需要的话
+                // $pathinfo = pathinfo($imageUrl);
+                // $caption = $pathinfo['basename'];
+                // $size = $_FILES['Upload']['size']['attachment_url'][$i];
+
+
+                $p1[$i] = $imageUrl;
+                $p2[$i] = ['caption' => $fileName, 'url' => $url, 'key' => $key];
+                $i++;
+            }
+     //   }
+
+
+        // 返回上传成功后的附件信息
+        echo json_encode([
+            'initialPreview' => $p1,
+            'initialPreviewConfig' => $p2,
+            'append' => false,
+        ]);
+        return;
+    }
+
+    /**
+     * Updates an existing Attachments model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+        $oldname = $model->attachment_url;
+        $model->attachment_url = basename($model->attachment_url);
+        $materials = Materials::find()->select(['material_id', 'mfr_part_number'])->asArray()->indexBy('material_id')->all();
+
+        if ($model->load(Yii::$app->request->post())) {
+            $dir = '../uploads/materials/'. $model->material_id .'/'; //路径包括物料ID，不同附件放在不同物料ID路径下
+            if (!is_dir($dir))
+                mkdir($dir);
+            $dir = $dir . $model->attachment_url;
+            rename(substr($oldname, strpos($oldname, '/')+1), $dir);
+            $model->attachment_url = '../' . $dir;
+            if ($model->save())
+                return $this->redirect(['view', 'id' => $model->material_id]);
+        } else {
+            return $this->render('update', [
+                'model' => $model,
+                'materials' => $materials,
+            ]);
+        }
+    }
+
+    public function actionDelete ($id)
+    {
+        // 前面我们已经为成功上传的附件指定了key,此处的key也就是附件的id
+     //   if ($id = Yii::$app->request->post('key')) {
+            $model = $this->findModel($id);
+            $model->delete();
+
+            $model->attachment_url = substr($model->attachment_url, strpos($model->attachment_url, '/')+1); //取第一个../后面的部分
+            // Delete the file if it still exists:
+            if (file_exists ($model->attachment_url) && is_file($model->attachment_url)) {
+                unlink ($model->attachment_url);
+            }
+     //   }
+     //   Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+        return $this->redirect(['view', 'id' => $model->material_id]);
+    }
+
+    protected function findModel($id)
+    {
+        if (($model = Attachments::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+}

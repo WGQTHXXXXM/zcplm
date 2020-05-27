@@ -1,0 +1,137 @@
+<?php
+
+namespace frontend\models;
+
+use common\components\CommonFunc;
+use Yii;
+use yii\behaviors\TimestampBehavior;
+use mdm\admin\models\User;
+
+/**
+ * This is the model class for table "part".
+ *
+ * @property integer $id
+ * @property string $parent_id
+ * @property string $parent_version
+ * @property integer $status
+ * @property integer $pv_release_time
+ * @property integer $pv_effect_date
+ * @property string $pv_expire_date
+ * @property integer $type
+ * @property string $creater_id
+ * @property integer $created_at
+ * @property integer $updated_at
+ * @property integer $real_material
+ */
+class BomsParent extends \yii\db\ActiveRecord
+{
+    public $zc_part_number;
+    public $car_number;
+    public $description;
+    public $creater;
+    public $pid;
+
+    const EXPIRE_DATE_MAX = 253402185600; //Unix时间戳(Unix timestamp)
+    const EXPIRE_DATE_TEMPORARY = 253402099200; //Unix时间戳(Unix timestamp)
+
+    const STATUS = [-1=>'禁用',0=>'审批中',1=>'发布'];
+    const STATUS_FORBIDDEN = -1; //禁用
+    const STATUS_UNRELEASE = 0; //未发布
+    const STATUS_RELEASE = 1; //发布
+
+    const TYPE = [0=>'草稿BOM',1=>'试产BOM',2=>'量产BOM'];
+    const BOM_TYPE_DRAFT = 0; //草稿BOM
+    const BOM_TYPE_TRIAL = 1; //试产BOM
+    const BOM_TYPE_MASS = 2; //量产BOM
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'boms_parent';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['parent_id', 'parent_version','real_material'], 'required'],
+            [['parent_id', 'parent_version', 'status', 'pv_release_time', 'pv_effect_date',
+                'pv_expire_date', 'type', 'creater_id', 'created_at', 'updated_at','real_material'], 'integer'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            TimestampBehavior::className(),
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('bom', 'ID'),
+            'parent_id' => Yii::t('bom', 'Parent ID'),
+            'parent_version' => Yii::t('bom', 'Parent Version'),
+            'status' => Yii::t('bom', 'Status'),
+            'pv_release_time' => Yii::t('bom', 'Release Time'),
+            'pv_effect_date' => Yii::t('bom', 'Effect Date'),
+            'pv_expire_date' => Yii::t('bom', 'Expire Date'),
+            'type' => Yii::t('bom', 'Type'),
+            'creater_id' => Yii::t('bom', 'Creater ID'),
+            'created_at' => Yii::t('bom', 'Created At'),
+            'updated_at' => Yii::t('bom', 'Updated At'),
+            'serial_number' => Yii::t('bom', 'Serial Number'),
+            'name' => Yii::t('material', 'Description'),
+            'creater' => Yii::t('bom', 'Creater'),
+            'zc_part_number' => Yii::t('material', 'Zhiche Part Number'),
+        ];
+    }
+
+    public function getMaterial()
+    {
+        return $this->hasOne(Materials::className(), ['material_id' => 'parent_id']);
+    }
+
+    public function getRealMaterial()
+    {
+        return $this->hasOne(Materials::className(), ['material_id' => 'real_material']);
+    }
+
+    public function getUser()
+    {
+        return $this->hasOne(User::className(), ['id' => 'creater_id']);
+    }
+
+    /*
+     * 任务通过的处理
+     */
+    public function doPassTask($mdlTask,$mdlUserTask=null)
+    {
+        $this->status = BomsParent::STATUS_RELEASE;
+        $this->type = BomsParent::BOM_TYPE_TRIAL;
+        $curTime = time();
+        $this->pv_release_time = $curTime;
+        $this->pv_effect_date = $curTime;
+        if(!$this->save())
+            return ['status'=>false,'msg'=>'改变BomsParent表时出错'];
+        $strCode = $this->material->zc_part_number;
+        //保存成功后提交
+        $strAddr = $mdlTask->user->email;
+        CommonFunc::sendMail(CommonFunc::APPROVE_PASS,$strAddr,$mdlTask->name,$strCode,'tasks/index');
+        return ['status'=>true,'msg'=>"审批成功，任务已经通过"];
+
+
+    }
+
+}

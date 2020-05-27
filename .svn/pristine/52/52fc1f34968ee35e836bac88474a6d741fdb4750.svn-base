@@ -1,0 +1,79 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use yii\base\Model;
+use yii\data\ActiveDataProvider;
+use frontend\models\Ecn;
+
+/**
+ * EcnSearch represents the model behind the search form about `frontend\models\Ecn`.
+ */
+class EcnSearch extends Ecn
+{
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['id', 'created_at', 'updated_at', 'change_now', 'affect_stock', 'ecr_id'], 'integer'],
+            [['serial_number', 'reason', 'detail', 'module', 'remark', 'project_process'], 'safe'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function scenarios()
+    {
+        // bypass scenarios() implementation in the parent class
+        return Model::scenarios();
+    }
+
+    /**
+     * Creates data provider instance with search query applied
+     *
+     * @param array $params
+     *
+     * @return ActiveDataProvider
+     */
+    public function search($params)
+    {
+        $query = Ecn::find();
+
+        // add conditions that should always apply here
+
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+        ]);
+
+        $this->load($params);
+
+        if (!$this->validate()) {
+            // uncomment the following line if you do not want to return any records when validation fails
+            // $query->where('0=1');
+            return $dataProvider;
+        }
+
+        // grid filtering conditions
+        $query->andFilterWhere([
+            'id' => $this->id,
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
+            'change_now' => $this->change_now,
+            'affect_stock' => $this->affect_stock,
+            'ecr_id' => $this->ecr_id,
+        ]);
+
+        $query->andFilterWhere(['like', 'serial_number', $this->serial_number])
+            ->andFilterWhere(['like', 'reason', $this->reason])
+            ->andFilterWhere(['like', 'detail', $this->detail])
+            ->andFilterWhere(['like', 'module', $this->module])
+            ->andFilterWhere(['like', 'project_process', $this->project_process])
+            ->andFilterWhere(['like', 'remark', $this->remark]);
+
+        return $dataProvider;
+    }
+}

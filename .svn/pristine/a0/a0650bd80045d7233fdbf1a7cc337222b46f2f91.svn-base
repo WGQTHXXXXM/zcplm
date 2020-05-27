@@ -1,0 +1,52 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\DetailView;
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\Boms */
+
+$this->title = $model->Id;
+$this->params['breadcrumbs'][] = ['label' => Yii::t('bom', 'Boms'), 'url' => ['index']];
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="boms-view">
+
+    <h1><?= Html::encode($this->title) ?></h1>
+
+    <p>
+        <?= Html::a(Yii::t('bom', 'Update'), ['update', 'id' => $model->Id], ['class' => 'btn btn-primary']) ?>
+        <?= Html::a(Yii::t('bom', 'Delete'), ['delete', 'id' => $model->Id], [
+            'class' => 'btn btn-danger',
+            'data' => [
+                'confirm' => Yii::t('bom', 'Are you sure you want to delete this item?'),
+                'method' => 'post',
+            ],
+        ]) ?>
+    </p>
+
+    <?= DetailView::widget([
+        'model' => $model,
+        'attributes' => [
+            'Id',
+            'parent_id',
+            'parent_version',
+            'child_id',
+            'child_version',
+            'status',
+            'release_time:datetime',
+            'validity_begin',
+            'validity_end',
+            'qty',
+            'ref_no',
+            '2zc_part_number_id',
+            '3zc_part_number_id',
+            '4zc_part_number_id',
+            'type',
+            'creater_id',
+            'created_at',
+            'updated_at',
+        ],
+    ]) ?>
+
+</div>

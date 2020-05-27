@@ -1,0 +1,23 @@
+<?php
+$this->title = Yii::t('material', 'Export Materials');
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div style="float:left;"><br/><br/><br/><br/><br/><br/><label>这可能会花费你2分钟时间,耐心等。</label><br/>
+    &emsp;&emsp;<button id="btn" class="btn btn-success">导出并下载</button>
+</div>
+<div style="margin:0 auto;width: 200px;" >
+    <div style="margin:0 auto"  id="img" class="hide" >
+        <img id="img" src="/css/images/loading.gif"><br/><br/><br/>
+        <label>正在从数据库导出，</label><br/><br/><label>这可能会花费你2分钟时间。</label><br/><br/><br/><br/>
+    </div>
+</div>
+<?php
+$Js = <<<JS
+$('#btn').on('click',function() {
+    location.href = "/modify-material/write-excel";
+    $('#btn').attr("disabled", true); 
+})
+
+
+JS;
+$this->registerJs($Js);

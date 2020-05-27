@@ -1,0 +1,160 @@
+<?php
+
+use yii\helpers\Html;
+use yii\helpers\Url;
+use yii\grid\GridView;
+use frontend\web\JQWidgetsAsset;
+
+/* @var $this yii\web\View */
+/* @var $dataProvider yii\data\ActiveDataProvider */
+
+$this->title = Yii::t('bom', 'Boms');
+$this->params['breadcrumbs'][] = $this->title;
+
+JQWidgetsAsset::register($this);
+?>
+<div class="boms-index">
+
+    <h1><?= Html::encode($this->title) ?></h1>
+
+    <p>
+        <!--?= Html::a(Yii::t('bom', 'Create Boms'), ['create'], ['class' => 'btn btn-success']) ?-->
+    </p>
+    <!--?= GridView::widget([
+        'dataProvider' => $dataProvider,
+        'columns' => [
+            ['class' => 'yii\grid\SerialColumn'],
+
+            'id',
+            'parent_id',
+            'parent_version',
+            'child_id',
+            'child_version',
+            // 'status',
+            // 'release_time:datetime',
+            // 'effect_date',
+            // 'expire_date',
+            // 'qty',
+            // 'ref_no',
+            // 'zc_part_number2_id',
+            // 'zc_part_number3_id',
+            // 'zc_part_number4_id',
+            // 'type',
+            // 'creater_id',
+            // 'created_at',
+            // 'updated_at',
+
+            ['class' => 'yii\grid\ActionColumn'],
+        ],
+    ]); ?-->
+    <div id="treeGrid">
+    </div>
+</div>
+<?php
+$getBomData = Url::toRoute("/boms/index");
+
+$Js = <<<JS
+$(document).ready(function () {          
+    var employees = [
+        { "EmployeeID": 1,"Employee": "1a", "FirstName": "Nancy", "LastName": "Davolio", "ReportsTo": "2a", "Country": "USA", "Title": "Sales Representative", "HireDate": "1992-05-01 00:00:00", "BirthDate": "1948-12-08 00:00:00", "City": "Seattle", "Address": "507 - 20th Ave. E.Apt. 2A" },
+        { "EmployeeID": 2,"Employee": "2a", "FirstName": "Andrew", "LastName": "Fuller", "ReportsTo": "", "Country": "USA", "Title": "Vice President, Sales", "HireDate": "1992-08-14 00:00:00", "BirthDate": "1952-02-19 00:00:00", "City": "Tacoma", "Address": "908 W. Capital Way" },
+        { "EmployeeID": 3,"Employee": "3a", "FirstName": "Janet", "LastName": "Leverling", "ReportsTo": "2a", "Country": "USA", "Title": "Sales Representative", "HireDate": "1992-04-01 00:00:00", "BirthDate": "1963-08-30 00:00:00", "City": "Kirkland", "Address": "722 Moss Bay Blvd." },
+        { "EmployeeID": 4,"Employee": "4a", "FirstName": "Margaret", "LastName": "Peacock", "ReportsTo": "2a", "Country": "USA", "Title": "Sales Representative", "HireDate": "1993-05-03 00:00:00", "BirthDate": "1937-09-19 00:00:00", "City": "Redmond", "Address": "4110 Old Redmond Rd." },
+        { "EmployeeID": 5,"Employee": "W5b", "FirstName": "<a href='//www.baidu.com'>Steven</a>", "LastName": "Buchanan", "ReportsTo": "2a", "Country": "UK", "Title": "Sales Manager", "HireDate": "1993-10-17 00:00:00", "BirthDate": "1955-03-04 00:00:00", "City": "London", "Address": "14 Garrett Hill" },
+        { "EmployeeID": 6,"Employee": "6a", "FirstName": "Michael", "LastName": "Suyama", "ReportsTo": "W5b", "Country": "UK", "Title": "Sales Representative", "HireDate": "1993-10-17 00:00:00", "BirthDate": "1963-07-02 00:00:00", "City": "London", "Address": "Coventry House Miner Rd." },
+        { "EmployeeID": 7,"Employee": "7a", "FirstName": "Robert", "LastName": "King", "ReportsTo": "W5b", "Country": "UK", "Title": "Sales Representative", "HireDate": "1994-01-02 00:00:00", "BirthDate": "1960-05-29 00:00:00", "City": "London", "Address": "Edgeham Hollow Winchester Way" },
+        { "EmployeeID": 8,"Employee": "8a", "FirstName": "Laura", "LastName": "Callahan", "ReportsTo": "2a", "Country": "USA", "Title": "Inside Sales Coordinator", "HireDate": "1994-03-05 00:00:00", "BirthDate": "1958-01-09 00:00:00", "City": "Seattle", "Address": "4726 - 11th Ave. N.E." },
+        { "EmployeeID": 9,"Employee": "9a", "FirstName": "Anne", "LastName": "Dodsworth", "ReportsTo": "W5b", "Country": "UK", "Title": "Sales Representative", "HireDate": "1994-11-15 00:00:00", "BirthDate": "1966-01-27 00:00:00", "City": "London", "Address": "7 Houndstooth Rd." }
+    ];
+
+    // prepare the data
+    var source =
+    {
+        dataType: "json",
+        dataFields: [
+            { name: 'id', type: 'number' },
+            { name: 'parent_id', type: 'number' },
+            { name: 'child_id', type: 'number' },
+            { name: 'parent_version', type: 'number' },
+            { name: 'child_version', type: 'number' },
+            { name: 'zc_part_number', type: 'string' },
+            { name: 'purchase_level', type: 'string' },
+            { name: 'description', type: 'string' },
+            { name: 'pcb_footprint', type: 'string' },
+            { name: 'qty', type: 'number' },
+            { name: 'ref_no', type: 'string' },
+            { name: 'mfr_part_number', type: 'string' },
+            { name: 'manufacturer', type: 'string' },
+            { name: 'zc_part_number2', type: 'string' },
+            { name: 'mfr_part_number2', type: 'string' },
+            { name: 'manufacturer2', type: 'string' },
+            { name: 'zc_part_number3', type: 'string' },
+            { name: 'mfr_part_number3', type: 'string' },
+            { name: 'manufacturer3', type: 'string' },
+            { name: 'zc_part_number4', type: 'string' },
+            { name: 'mfr_part_number4', type: 'string' },
+            { name: 'manufacturer4', type: 'string' },
+            { name: 'status', type: 'number' },
+            { name: 'release_time', type: 'date' },
+            { name: 'effect_date', type: 'date' },
+            { name: 'expire_date', type: 'date' },
+          //  { name: 'type', type: 'number' },
+          //  { name: 'creater_id', type: 'number' },
+          //  { name: 'creater', type: 'string' },
+          //  { name: 'created_at', type: 'date' },
+          //  { name: 'updated_at', type: 'date' }
+            { name: 'children', type: 'array' }
+        ],
+        hierarchy:
+        {
+          /*  keyDataField: { name: 'child_id' },
+            parentDataField: { name: 'parent_id' }*/
+            root: 'children'
+        },
+        id: 'id',
+        url: "$getBomData?id=$id"
+    };
+    var dataAdapter = new $.jqx.dataAdapter(source);
+    // create Tree Grid
+    $("#treeGrid").jqxTreeGrid(
+    {
+     //   width: 850,
+        width: '100%',
+        source: dataAdapter,
+        sortable: true,
+        columnsResize: true,
+        altRows: true,
+        icons: true,
+        ready: function()
+        {
+            $("#treeGrid").jqxTreeGrid('expandRow', '$id');
+        },
+        columns: [
+          { 
+            text: 'zc_part_number', dataField: 'zc_part_number', width: 260, 
+            cellsRenderer: function (rowKey, dataField, value, data) {
+                return "<a href='$getBomData?id="+rowKey+"'>"+rowKey+', '+data.parent_id+', '+value+', '+data.child_id+"</a>";
+            }
+          },
+          { text: 'purchase level', dataField: 'purchase_level', width: 50 },
+          { text: 'description', dataField: 'description', width: 200 },
+          { text: 'pcb footprint', dataField: 'pcb_footprint', width: 100 },
+          { text: 'qty', dataField: 'qty', width: 50 },
+          { text: 'ref_no', dataField: 'ref_no', width: 150 },
+          { text: 'mfr_part_number', dataField: 'mfr_part_number', width: 150 },
+          { text: 'manufacturer', dataField: 'manufacturer', width: 100 },
+          { text: 'zc_part_number2', dataField: 'zc_part_number2', width: 150 },
+          { text: 'mfr_part_number2', dataField: 'mfr_part_number2', width: 150 },
+          { text: 'manufacturer2', dataField: 'manufacturer2', width: 110 },
+          { text: 'zc_part_number3', dataField: 'zc_part_number3', width: 150 },
+          { text: 'mfr_part_number3', dataField: 'mfr_part_number3', width: 150 },
+          { text: 'manufacturer3', dataField: 'manufacturer3', width: 110 },
+          { text: 'zc_part_number4', dataField: 'zc_part_number4', width: 150 },
+          { text: 'mfr_part_number4', dataField: 'mfr_part_number4', width: 150 },
+          { text: 'manufacturer4', dataField: 'manufacturer4', width: 110 }
+        ],
+    });
+});
+JS;
+$this->registerJs($Js);
+?>

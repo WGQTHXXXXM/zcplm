@@ -1,0 +1,116 @@
+<?php
+
+use yii\helpers\Html;
+use yii\grid\GridView;
+use frontend\models\BomsParent;
+
+/* @var $this yii\web\View */
+/* @var $dataProvider yii\data\ActiveDataProvider */
+
+$this->title = Yii::t('bom', 'view');
+$this->params['breadcrumbs'][] = ['label' => Yii::t('bom', 'Search'), 'url' => ['index']];
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="boms-index">
+
+    <h1><?= Html::encode('BOM库搜索有子级物料的结果') ?></h1>
+
+    <p>
+        <?= Html::encode('搜索“编号 Like '.$serial_number.'”结果如下') ?>
+    </p>
+    <div class="box table-responsive">
+    <?= GridView::widget([
+        'tableOptions' => ['class' => 'table table-striped table-bordered table-hover'],
+        'dataProvider' => $dataProvider,
+        'formatter' => ['class' => 'yii\i18n\Formatter','nullDisplay' => '','datetimeFormat' => 'php:Y-m-d H:i:s',],
+        'columns' => [
+            ['class' => 'yii\grid\SerialColumn'],
+
+            'id',
+         //   'parent_id',
+            [
+                'attribute' => 'serial_number',
+                'value' => function($model) {
+                    return Html::a($model->material->zc_part_number, [
+                        'boms/index',
+                     //   'parent_id' => $model->child_id,
+                     //   'parent_version' => $model->child_version,
+                        'material_id' => $model->parent_id,
+                        'parent_version' => $model->parent_version,
+                        'forward' => 1]);
+                },
+                'format' => 'raw',
+            ],
+            [
+                'attribute' => 'name',
+                'value' => 'material.description',
+            ],
+            [
+                'attribute' => 'type',
+                'value' => function($model) {
+                    switch ($model->type) {
+                        case BomsParent::BOM_TYPE_DRAFT:
+                            $status = Yii::t('bom', 'Draft Bom');
+                            break;
+                        case BomsParent::BOM_TYPE_TRIAL:
+                            $status = Yii::t('bom', 'Trial Bom');
+                            break;
+                        case BomsParent::BOM_TYPE_MASS:
+                            $status = Yii::t('bom', 'Mass Bom');
+                            break;
+                        default:
+                            $status = Yii::t('bom', 'Undefined');
+                    }
+                    return $status;
+                },
+            ],
+         //   'creater_id',
+            [
+                'attribute' => 'creater',
+                'value' => 'user.username',
+            ],
+            'parent_version',
+            [
+                'attribute' => 'status',
+                'value' => function($model) {
+                    switch ($model->status) {
+                        case BomsParent::STATUS_UNRELEASE:
+                            $status = Yii::t('bom', 'Not Release');
+                            break;
+                        case BomsParent::STATUS_RELEASE:
+                            $status = Yii::t('bom', 'Release');
+                            break;
+                        default:
+                            $status = Yii::t('bom', 'Undefined');
+                    }
+                    return $status;
+                },
+            ],
+            // 'pv_release_time:datetime',
+            // 'pv_effect_date',
+            // 'pv_expire_date',
+            // 'qty',
+            // 'ref_no',
+            // '2zc_part_number',
+            // '3zc_part_number',
+            // '4zc_part_number',
+            [
+                'attribute' => 'created_at',
+                'format' => ['date', 'php:Y-m-d H:i:s'],
+            ],
+            [
+                'attribute' => 'pv_effect_date',
+                'value' => function($model) {
+                    if ($model->pv_effect_date == BomsParent::EXPIRE_DATE_TEMPORARY) {
+                        $model->pv_effect_date = null;
+                    }
+                    return $model->pv_effect_date;
+                },
+                'format' => ['date', 'php:Y-m-d H:i:s'],
+            ],
+
+          //  ['class' => 'yii\grid\ActionColumn'],
+        ],
+    ]); ?>
+    </div>
+</div>

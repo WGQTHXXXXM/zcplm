@@ -1,0 +1,28 @@
+<?php
+use kartik\tree\TreeView;
+
+$this->title =Yii::t('material','Material Rule Manager');
+$pro = Yii::t('common','expandAll/collapseAll');
+$this->params['breadcrumbs'][] = $this->title;
+echo TreeView::widget([
+    // single query fetch to render the tree
+    // use the Product model you have in the previous stepss
+
+    'rootOptions' =>[
+        'class' => 'text-primary',
+        'label'=>$pro
+    ],
+    'query' => $dataMsView,
+    'headingOptions' => ['label' => 'template'],
+    'fontAwesome' => false,     // optional
+    'isAdmin' => true,         // optional (toggle to enable admin mode)
+    'displayValue' => -1,        // initial display value
+    'softDelete' => false,       // defaults to true
+    'cacheSettings' => [
+        'enableCache' => true   // defaults to true
+    ],
+    'treeOptions' => ['style' => ['height'=>'710px', ]],
+    'showIDAttribute' => false,
+    'nodeView' => '@kvtree/views/MaterialEncodeRuleTpl',
+]);
+?>

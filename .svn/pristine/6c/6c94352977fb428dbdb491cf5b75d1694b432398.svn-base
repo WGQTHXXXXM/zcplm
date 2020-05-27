@@ -1,0 +1,61 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "detail_list".
+ *
+ * @property integer $id
+ * @property string $name
+ * @property string $description
+ * @property integer $class_id
+ *
+ * @property ClassList $class
+ */
+class DetailList extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'detail_list';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['name', 'class_id'], 'required'],
+            [['class_id'], 'integer'],
+            [['name', 'description'], 'string', 'max' => 40],
+            [['name'], 'unique'],
+            [['class_id'], 'exist', 'skipOnError' => true, 'targetClass' => ClassList::className(), 'targetAttribute' => ['class_id' => 'id']],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('common', 'ID'),
+            'name' => Yii::t('common', 'Name'),
+            'description' => Yii::t('common', 'Description'),
+            'class_id' => Yii::t('common', 'Class ID'),
+        ];
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getClass()
+    {
+        return $this->hasOne(ClassList::className(), ['id' => 'class_id']);
+    }
+}

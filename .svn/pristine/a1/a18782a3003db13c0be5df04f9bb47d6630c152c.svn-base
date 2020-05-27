@@ -1,0 +1,26 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use yii\base\Model;
+use yii\web\UploadedFile;
+
+class ImportBomForm extends Model
+{
+    public $bomFile;
+
+    public function rules()
+    {
+        return [
+            [['bomFile'], 'file', 'skipOnEmpty' => false],
+        ];
+    }
+
+    public function attributeLabels()
+    {
+        return [
+            'bomFile' => Yii::t('common', 'Bom Csv File'),
+        ];
+    }
+}

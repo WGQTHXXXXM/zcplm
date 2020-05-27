@@ -1,0 +1,558 @@
+<?php
+
+namespace frontend\controllers;
+
+use Yii;
+use frontend\models\Boms;
+use frontend\models\BomsSearch;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use yii\base\Model;
+use frontend\models\BomsMaterials;
+use frontend\models\Modules;
+use frontend\models\Projects;
+use frontend\models\Materials;
+use yii\helpers\Json;
+use common\components\CommonFunc;
+
+/**
+ * BomsController implements the CRUD actions for Boms model.
+ */
+class BomsController extends Controller
+{
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists a Materials model to input the search conditions.
+     * @return mixed
+     * This function is created by syb, and _search view page is created by gii.
+     */
+    public function actionSearch()
+    {
+        if (Yii::$app->request->isAjax) {
+            $request = Yii::$app->request;
+            $action = $request->get('action');
+
+            $data = NULL;
+            if ($action == "getmilestoneOption") {
+                $project_name = $request->get('project_name');
+
+                if ($project_name != "") {
+                    $data = Modules::find()->select(['milestone'])->innerJoinWith('project')->where(['projects.name' => $project_name])->indexBy('milestone')->orderBy('milestone')->all();
+                }
+
+                //  \Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+                return Json::encode($data);
+            } else if ($action == "getmodulesOption") {
+                $project_name = $request->get('project_name');
+                $milestone = $request->get('milestone');
+
+                if ($milestone != "") {
+                    $data = Modules::find()->select(['module_id', 'modules.name'])->innerJoinWith('project')->where(['projects.name' => $project_name, 'milestone' => $milestone])->orderBy('modules.name')->all();
+                }
+
+                //  \Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+                return Json::encode($data);
+            }
+        }
+
+
+        $model = new BomsSearch();
+        $modules = new Modules();
+        $projects = Projects::find()->select(['project_id', 'name'])->asArray()->all();
+
+        return $this->render('_search', [
+            'model' => $model,
+            'modules' => $modules,
+            'projects' => $projects,
+        ]);
+    }
+
+    /**
+     * Lists all Boms models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+        $searchModel = new BomsSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+
+
+        //传参导出
+        $paramsExcel = ''; //这个参数是控制接收view层GridView::widget filter的参数
+        if (($params = Yii::$app->request->queryParams))
+        {
+            if ($params && isset($params['BomsSearch']) && $params['BomsSearch'])
+            {
+                foreach ($params['BomsSearch'] as $k => $v)
+                {
+                    if ($v)
+                    {
+                        $paramsExcel .= $k.'='.$v.'&';
+                    }
+                }
+            }
+            $paramsExcel = rtrim($paramsExcel, '&');
+        }
+
+
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+            'paramsExcel' => $paramsExcel,
+        ]);
+    }
+
+    /**
+     * Displays a single Boms model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        $model = $this->findModel($id);
+        $modules = Modules::findOne($model->module_id);
+        $projects = Projects::findOne($modules->project_id);
+        $model->milestone = $modules->milestone;
+        $model->module_name = $modules->name;
+        $model->project_name = $projects->name;
+
+        $b_ms = [new BomsMaterials()];
+        //   $count = count(Yii::$app->request->post('BomsMaterials', []));
+        for($i = 1; $i < 3; $i++) {
+            $b_ms[] = new BomsMaterials();
+        }
+        $original_bms = BomsMaterials::find()->where(['bom_id' => $id])->orderBy('supplier_priority ASC')->all();
+        for($i = 0; $i < 3; $i++) {
+            if(!empty($original_bms[$i]->material_id)) {
+                $b_ms[$i] = Materials::findOne($original_bms[$i]->material_id);
+            }
+        }
+        $model->part_no = empty($b_ms[0]->part_no)? NULL : $b_ms[0]->part_no;
+        $model->second_source_part_no = empty($b_ms[1]->part_no)? NULL : $b_ms[1]->part_no;
+        $model->third_source_part_no = empty($b_ms[2]->part_no)? NULL : $b_ms[2]->part_no;
+
+        
+        return $this->render('view', [
+            'model' => $model,
+        ]);
+    }
+
+    /**
+     * Creates a new Boms model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate()
+    {
+        $model = new Boms();
+        $modules = new Modules();
+        $b_ms = [new BomsMaterials()];
+     //   $count = count(Yii::$app->request->post('BomsMaterials', []));
+        for($i = 1; $i < 3; $i++) {
+            $b_ms[] = new BomsMaterials();
+        }
+        $projects = Projects::find()->select(['project_id', 'name'])->asArray()->all();
+        $materials = Materials::find()->select(['material_id', 'part_no'])->asArray()->all();
+
+        if ($model->load(Yii::$app->request->post()) && $model->validate() && Model::loadMultiple($b_ms, Yii::$app->request->post()) && Model::validateMultiple($b_ms)) {
+            if (empty($b_ms[0]->material_id)) {
+                throw new NotFoundHttpException('“Part No.”为必填项');
+            }
+         /*   if (empty($b_ms[1]->material_id) && !empty($b_ms[2]->material_id)) {
+                throw new NotFoundHttpException('不允许“2nd Source P/N”空值而“3rd Source P/N”不空');
+            }
+            if (empty($b_ms[2]->material_id)) {
+                array_pop($b_ms);
+            }
+            if (empty($b_ms[1]->material_id)) {
+                array_pop($b_ms);
+            }*/
+
+            //  Test for unique first supplier:
+          //  $count = Boms::find()->where(['module_id' => $model->module_id])->with(['boms_materials' => function($query) {
+          //      $query->andWhere(['supplier_priority' => 1, 'material_id' => $b_ms[0]->material_id]);},])->count();
+            $sql = "SELECT * FROM boms_materials WHERE supplier_priority=1 AND material_id='{$b_ms[0]->material_id}' AND bom_id IN (SELECT bom_id FROM boms WHERE module_id='{$model->module_id}')";
+            $num = BomsMaterials::findBySql($sql)->count();
+            if ($num != 0) {
+                throw new NotFoundHttpException('该Part No.已经被注册过了');
+            }
+
+            //  Test for unique ref_no:
+            if(!empty($model->ref_no)) {
+                $sql = "SELECT bom_id FROM boms WHERE module_id='{$model->module_id}' AND ref_no='{$model->ref_no}'";
+                $num = Boms::findBySql($sql)->count();
+                if ($num != 0) {
+                    throw new NotFoundHttpException('该Reference No.已经被注册过了');
+                }
+            }
+
+            $transaction = Boms::getDb()->beginTransaction();
+            try {
+                $model->save(false);
+                $i = 1;
+                foreach ($b_ms as $index => $b_m) {
+                    if (!empty($b_m->material_id)) {
+                        $b_m->bom_id = $model->bom_id;
+                        $b_m->supplier_priority = $i;
+                        $b_m->save(false);
+                        $i++;
+                    }
+                }
+                $transaction->commit();
+                //  return $this->redirect('index');
+                return $this->redirect(['view', 'id' => $model->bom_id]);
+            } catch(\Exception $e) {
+                $transaction->rollBack();
+                throw $e;
+            }
+        } else {
+            return $this->render('create', [
+                'model' => $model,
+                'b_ms' => $b_ms,
+                'modules' => $modules,
+                'projects' => $projects,
+                'materials' => $materials,
+            ]);
+        }
+    }
+
+    /**
+     * Updates an existing Boms model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+        $modules = Modules::findOne($model->module_id);
+        $milestone_dropDownList = Modules::find()->select(['milestone'])->where(['project_id' => $modules->project_id])->indexBy('milestone')->orderBy('milestone')->asArray()->all();
+        $modules_name_dropDownList = Modules::find()->select(['module_id', 'name'])->where(['project_id' => $modules->project_id, 'milestone' => $modules->milestone])->orderBy('name')->asArray()->all();
+
+        $b_ms = [new BomsMaterials()];
+        //   $count = count(Yii::$app->request->post('BomsMaterials', []));
+        for($i = 1; $i < 3; $i++) {
+            $b_ms[] = new BomsMaterials();
+        }
+        $projects = Projects::find()->select(['project_id', 'name'])->asArray()->all();
+        $materials = Materials::find()->select(['material_id', 'part_no'])->asArray()->all();
+        $original_bms = BomsMaterials::find()->where(['bom_id' => $id])->orderBy('supplier_priority ASC')->all();
+        for($i = 0; $i < 3; $i++) {
+            $b_ms[$i]->material_id = empty($original_bms[$i]->material_id)? NULL : $original_bms[$i]->material_id;
+        }
+
+        if ($model->load(Yii::$app->request->post()) && $model->validate() && Model::loadMultiple($b_ms, Yii::$app->request->post()) && Model::validateMultiple($b_ms)) {
+            //  Test for unique ref_no:
+            if(!empty($model->ref_no)) {
+                $sql = "SELECT bom_id FROM boms WHERE module_id='{$model->module_id}' AND ref_no='{$model->ref_no}' AND bom_id != $id";
+                $num = Boms::findBySql($sql)->count();
+                if ($num != 0) {
+                    throw new NotFoundHttpException('该Reference No.已经被注册过了');
+                }
+            }
+
+            $transaction = Boms::getDb()->beginTransaction();
+            try {
+                $model->save(false);
+
+                //  Test for unique first supplier:
+                $sql = "SELECT bom_id FROM boms INNER JOIN boms_materials USING (bom_id) WHERE module_id='{$model->module_id}' AND material_id='{$b_ms[0]->material_id}' AND supplier_priority=1 AND bom_id != $id";
+                $num = Boms::findBySql($sql)->count();
+                if ($num == 0) {
+                    if ($b_ms[0]->material_id != $original_bms[0]->material_id) { //判断一供料号是否更改
+                        for($i = 1; $i < 3; $i++) { // 删除已有的二供和（或）三供，为后续操作提供方便
+                            if (!empty($original_bms[$i]->material_id)) $original_bms[$i]->delete();
+                        }
+
+                        $original_bms[0]->material_id = $b_ms[0]->material_id;
+                        $original_bms[0]->update(false);
+                    }
+
+                    // second supplier.
+                    $sql = "SELECT bom_id FROM boms_materials WHERE supplier_priority=2 AND bom_id = $id"; // 判断此时数据库里是否存在二供
+                    $num_second_supplier = BomsMaterials::findBySql($sql)->count();
+                    if (!empty($b_ms[1]->material_id)) { // 如果现在提交二供
+                        //  Test for unique material_id@bom_id:
+                        $sql = "SELECT bom_id FROM boms_materials WHERE material_id='{$b_ms[1]->material_id}' AND supplier_priority!=2 AND bom_id = $id";
+                        $num_unique = BomsMaterials::findBySql($sql)->count();
+                        if ($num_second_supplier == 1) { // 如果此时数据库里存在二供:UPDATE
+                            if ($num_unique == 0) { //如果material_id@bom_id唯一
+                                $original_bms[1]->material_id = $b_ms[1]->material_id;
+                                $original_bms[1]->update(false);
+                            } else { //如果material_id@bom_id不唯一
+                                throw new NotFoundHttpException('二供料号与其它(一供或三供)重复');
+                            }
+                        } else { // 如果此时数据库里不存在二供:INSERT
+                            if ($num_unique == 0) { //如果material_id@bom_id唯一
+                                $b_ms[1]->bom_id = $id;
+                                $b_ms[1]->supplier_priority = 2;
+                                $b_ms[1]->insert(false);
+                            } else { //如果material_id@bom_id不唯一
+                                throw new NotFoundHttpException('二供料号与其它(一供或三供)重复');
+                            }
+                        }
+                    } else { // 如果现在不提交二供
+                        if ($num_second_supplier == 1) { // 如果此时数据库里存在二供:DELETE
+                            $original_bms[1]->delete();
+                        }
+                    }
+
+                    // third supplier.
+                    $sql = "SELECT bom_id FROM boms_materials WHERE supplier_priority=3 AND bom_id = $id"; // 判断此时数据库里是否存在三供
+                    $num_third_supplier = BomsMaterials::findBySql($sql)->count();
+                    if (!empty($b_ms[2]->material_id)) { // 如果现在提交三供
+                        //  Test for unique material_id@bom_id:
+                        $sql = "SELECT bom_id FROM boms_materials WHERE material_id='{$b_ms[2]->material_id}' AND supplier_priority!=3 AND bom_id = $id";
+                        $num_unique = BomsMaterials::findBySql($sql)->count();
+                        if ($num_third_supplier == 1) { // 如果此时数据库里存在三供:UPDATE
+                            if ($num_unique == 0) { //如果material_id@bom_id唯一
+                                $original_bms[2]->material_id = $b_ms[2]->material_id;
+                                $original_bms[2]->update(false);
+                            } else { //如果material_id@bom_id不唯一
+                                throw new NotFoundHttpException('三供料号与其它(一供或二供)重复');
+                            }
+                        } else { // 如果此时数据库里不存在三供:INSERT
+                            if ($num_unique == 0) { //如果material_id@bom_id唯一
+                                $b_ms[2]->bom_id = $id;
+                                $b_ms[2]->supplier_priority = 3;
+                                $b_ms[2]->insert(false);
+                            } else { //如果material_id@bom_id不唯一
+                                throw new NotFoundHttpException('三供料号与其它(一供或二供)重复');
+                            }
+                        }
+                    } else { // 如果现在不提交三供
+                        if ($num_third_supplier == 1) { // 如果此时数据库里存在三供:DELETE
+                            $original_bms[2]->delete();
+                        }
+                    }
+
+                    $transaction->commit();
+                    //  return $this->redirect('index');
+                    return $this->redirect(['view', 'id' => $model->bom_id]);
+                } else {
+                    throw new NotFoundHttpException('该一供料号已经被注册过了');
+                }
+            } catch(\Exception $e) {
+                $transaction->rollBack();
+                throw $e;
+            }
+        } else {
+            return $this->render('update', [
+                'model' => $model,
+                'b_ms' => $b_ms,
+                'modules' => $modules,
+                'projects' => $projects,
+                'materials' => $materials,
+                'milestone_dropDownList' => $milestone_dropDownList,
+                'modules_name_dropDownList' => $modules_name_dropDownList,
+            ]);
+        }
+    }
+
+    /**
+     * Deletes an existing Boms model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $transaction = Boms::getDb()->beginTransaction();
+        try {
+            $original_bms = BomsMaterials::find()->where(['bom_id' => $id])->orderBy('supplier_priority ASC')->all();
+            foreach ($original_bms as $original_bm) {
+                $original_bm->delete();
+            }
+
+            $this->findModel($id)->delete();
+            $transaction->commit();
+
+        } catch(\Exception $e) {
+            $transaction->rollBack();
+            throw $e;
+        }
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the Boms model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return Boms the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = Boms::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    /**
+     * This function is used to response jQuery Ajax request.
+     * @return Json::encode()
+     * This function is created by syb.
+     */
+    public function actionAjax()
+    {
+        if (Yii::$app->request->isAjax) {
+            $request = Yii::$app->request;
+            $action = $request->get('action');
+
+            $data = NULL;
+            if ($action == "getmilestoneOption"){
+                $project_id = $request->get('project_id');
+
+                if ($project_id != "") {
+                    $data = Modules::find()->select(['milestone'])->where(['project_id' => $project_id])->indexBy('milestone')->orderBy('milestone')->asArray()->all();
+                }
+
+                //  \Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+                return Json::encode($data);
+            } else if ($action == "getmodulesOption"){
+                $project_id = $request->get('project_id');
+                $milestone = $request->get('milestone');
+
+                if ($milestone != "") {
+                    $data = Modules::find()->select(['module_id', 'name'])->where(['project_id' => $project_id, 'milestone' => $milestone])->orderBy('name')->asArray()->all();
+                }
+
+                //  \Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+                return Json::encode($data);
+            }
+        }
+    }
+
+    /**
+     * @DESC 数据导出
+     */
+    public function actionExportData()
+    {
+        $select = "project_name,milestone,module_name,";
+
+        $where = "1";
+        $temp = "";
+        $filename = "导出BOM";
+        $worksheet = "worksheet";
+
+        $assy_level = isset($_GET["assy_level_toggle"])? "" : "assy_level,";
+        $purchase_level = isset($_GET["purchase_level_toggle"])? "" : "purchase_level,";
+        $part_no = isset($_GET["part_no_toggle"])? "" : "part_no,";
+        $part_name = isset($_GET["part_name_toggle"])? "" : "part_name,";
+        $description = isset($_GET["description_toggle"])? "" : "description,";
+        $pcb_footprint = isset($_GET["pcb_footprint_toggle"])? "" : "pcb_footprint,";
+        $qty = isset($_GET["qty_toggle"])? "" : "qty,";
+        $ref_no = isset($_GET["ref_no_toggle"])? "" : "ref_no,";
+        $supplier_name = isset($_GET["supplier_name_toggle"])? "" : "supplier_name,";
+        $second_source_part_no = isset($_GET["second_source_part_no_toggle"])? "" : "second_source_part_no,";
+        $second_source_supplier_name = isset($_GET["second_source_supplier_name_toggle"])? "" : "second_source_supplier_name,";
+        $third_source_part_no = isset($_GET["third_source_part_no_toggle"])? "" : "third_source_part_no,";
+        $third_source_supplier_name = isset($_GET["third_source_supplier_name_toggle"])? "" : "third_source_supplier_name,";
+        $remark = isset($_GET["remark_toggle"])? "" : "remark,";
+        $select .= $assy_level.$purchase_level.$part_no.$part_name.$description.$pcb_footprint.$qty.$ref_no.$supplier_name.$second_source_part_no.$second_source_supplier_name.$third_source_part_no.$third_source_supplier_name.$remark;
+        $select = rtrim($select, ",");
+        
+        if ($_GET)
+        {
+            foreach ($_GET as $k => $v)
+            {
+                if ($k == "project_name")
+                {
+                    $temp .= "proj.name=\"" . $v . "\" AND ";
+                    $filename = $v;
+                }
+                elseif ($k == "milestone")
+                {
+                    $temp .= "mo.milestone=\"" . $v . "\" AND ";
+                    $filename .= "_".$v;
+                }
+                elseif ($k == "module_name")
+                {
+                    $temp .= "mo.name=\"" . $v . "\" AND ";
+                    $filename .= "_".$v."_BOM";
+                    $worksheet = $v;
+                }
+            }
+            $temp = rtrim($temp, " AND");
+
+            if (isset($_GET["filename"])) $filename = $_GET["filename"];
+            if (isset($_GET["worksheet"])) $worksheet = $_GET["worksheet"];
+        }
+        if ($temp) $where .= " AND ".$temp;
+        //查询数据
+     //   $searchModel = new BomsSearch();
+     //   $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+     //   $query = Boms::find();
+     //   $query->joinWith(['module.project']);
+     //   $query->innerJoinWith('bomsMaterials.material.brandList');
+     //   $query->joinWith('bomsMaterials2.material2.brandList2');
+     //   $query->joinWith('bomsMaterials3.material3.brandList3');
+     //   $data = $query->all();
+        $sql = "SELECT " . $select .
+            " FROM 
+         (SELECT proj.name AS project_name, 
+                 mo.milestone AS milestone, mo.name AS module_name, 
+                 b.assy_level AS assy_level, b.purchase_level AS purchase_level, b.qty AS qty, b.ref_no AS ref_no, b.remark AS remark, 
+                 m1.part_no AS part_no, m1.part_name AS part_name, m1.description AS description, m1.pcb_footprint AS pcb_footprint, bl1.brand AS supplier_name, 
+                 m2.part_no AS second_source_part_no, bl2.brand AS second_source_supplier_name, 
+                 m3.part_no AS third_source_part_no, bl3.brand AS third_source_supplier_name 
+          FROM projects AS proj INNER JOIN modules AS mo USING (project_id) INNER JOIN boms AS b USING (module_id) 
+          INNER JOIN boms_materials AS b_m1 ON b.bom_id=b_m1.bom_id && b_m1.supplier_priority=1 INNER JOIN materials AS m1 USING (material_id) LEFT JOIN brand_list AS bl1 ON (m1.supplier_name_id=bl1.id) 
+          LEFT JOIN boms_materials AS b_m2 ON b.bom_id=b_m2.bom_id && b_m2.supplier_priority=2 LEFT JOIN materials AS m2 ON b_m2.material_id=m2.material_id LEFT JOIN brand_list AS bl2 ON (m2.supplier_name_id=bl2.id) 
+          LEFT JOIN boms_materials AS b_m3 ON b.bom_id=b_m3.bom_id && b_m3.supplier_priority=3 LEFT JOIN materials AS m3 ON b_m3.material_id=m3.material_id LEFT JOIN brand_list AS bl3 ON (m3.supplier_name_id=bl3.id) 
+          WHERE ". $where ." 
+          ORDER BY b.bom_id) AS subsql 
+          ";
+        $data = Projects::findBySql($sql)->asArray()->all();
+     //   var_dump($data);
+         /*   [
+            ['id'=>1, '用户账号'=>'小明', '创建时间'=>'25'],
+            ['id'=>3, '用户账号'=>'张鹏', '创建时间'=>'26'],
+        ];*/
+        if ($data) { // 数据处理
+            // 给每一行记录添加Item序号
+            for ($item=0; $item<count($data); $item++) {
+                array_unshift($data[$item], $item+1);
+            }
+        }
+        $header = [
+            ['header'=>"Item", 'width'=>7],
+            ['header'=>Yii::t('common', 'Project'), 'width'=>15],
+            ['header'=>Yii::t('common', 'Milestone'), 'width'=>7],
+            ['header'=>Yii::t('common', 'Module'), 'width'=>15],
+            ['header'=>isset($_GET["assy_level_toggle"])? "" : Yii::t('common', 'Assy Level'), 'width'=>10],
+            ['header'=>isset($_GET["purchase_level_toggle"])? "" : Yii::t('common', 'Purchase Level'), 'width'=>10],
+            ['header'=>isset($_GET["part_no_toggle"])? "" : Yii::t('common', 'Part No.'), 'width'=>20],
+            ['header'=>isset($_GET["part_name_toggle"])? "" : Yii::t('common', 'Part Name'), 'width'=>25],
+            ['header'=>isset($_GET["description_toggle"])? "" : Yii::t('common', 'Description'), 'width'=>50],
+            ['header'=>isset($_GET["pcb_footprint_toggle"])? "" : Yii::t('common', 'Pcb Footprint'), 'width'=>20],
+            ['header'=>isset($_GET["qty_toggle"])? "" : Yii::t('common', 'Qty'), 'width'=>7],
+            ['header'=>isset($_GET["ref_no_toggle"])? "" : Yii::t('common', 'Ref No'), 'width'=>30],
+            ['header'=>isset($_GET["supplier_name_toggle"])? "" : Yii::t('common', 'Supplier Name'), 'width'=>15],
+            ['header'=>isset($_GET["second_source_part_no_toggle"])? "" : Yii::t('common', '2nd Source P/N'), 'width'=>20],
+            ['header'=>isset($_GET["second_source_supplier_name_toggle"])? "" : Yii::t('common', '2nd Source Supplier'), 'width'=>15],
+            ['header'=>isset($_GET["third_source_part_no_toggle"])? "" : Yii::t('common', '3rd Source P/N'), 'width'=>20],
+            ['header'=>isset($_GET["third_source_supplier_name_toggle"])? "" : Yii::t('common', '3rd Source Supplier'), 'width'=>15],
+            ['header'=>isset($_GET["remark_toggle"])? "" : Yii::t('common', 'Remark'), 'width'=>15],
+        ]; //导出excel的表头
+        CommonFunc::exportData($data, $header, $worksheet, $filename);
+    }
+}

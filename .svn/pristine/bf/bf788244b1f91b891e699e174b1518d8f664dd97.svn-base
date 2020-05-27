@@ -1,0 +1,162 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\ActiveForm;
+//use frontend\models\Projects;
+use yii\helpers\ArrayHelper;
+use yii\helpers\Url;
+use kartik\select2\Select2;
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\Boms */
+/* @var $form yii\widgets\ActiveForm */
+?>
+
+<div class="boms-form">
+
+    <?php $form = ActiveForm::begin(); ?>
+
+    <?php
+ //   $session = Yii::$app->session;
+ //   if (!$session->isActive) $session->open();
+ //   $data = Projects::find()->select(['name', 'project_id'])->indexBy('project_id')->all();
+ //   if(isset($session['project_id'])) $modules->project_id = $session['project_id'];
+ //   yii\helpers\VarDumper::dump($modules->project_id);
+    ?>
+    <div class="row">
+        <div class="col-lg-4">
+            <?= $form->field($modules, 'project_id')->dropDownList(ArrayHelper::map($projects, 'project_id', 'name'),
+                [
+                    'prompt'=>'请选择项目名称 ...',
+                  //  'id' => 'select_name',
+                    'onchange' => '
+                        $.ajax({
+                            type: "GET",
+                            url: "'.Url::to(["/boms/ajax?action=getmilestoneOption"], true).'",
+                            data: {project_id:$(this).val()},
+                            success: function(data) {
+                                $("#modules-milestone").empty();
+                                $("#boms-module_id").empty();
+                                if (data != "null") {
+                                    var data = $.parseJSON(data);
+                                    option = \'<option value="">请选择里程碑 ...</option>\';
+                                    $("#modules-milestone").append(option);
+                                    $.each(data, function() {
+                                        option = \'<option value="\' + this.milestone + \'">\' + this.milestone + \'</option>\';
+                                        $("#modules-milestone").append(option);
+                                    });
+                                }
+                            },
+                            timeout: 3000,
+                            error: function(){
+                                alert("错误：请求超时无响应");
+                            }
+                        });'
+                ]
+            ) ?>
+        </div>
+        <div class="col-lg-4">
+            <?= $form->field($modules, 'milestone')->dropDownList(empty($milestone_dropDownList)? [] : ArrayHelper::map($milestone_dropDownList, 'milestone', 'milestone'),
+                [
+                    'onchange' => '
+                        $.ajax({
+                            type: "GET",
+                            url: "'.Url::to(["/boms/ajax?action=getmodulesOption"], true).'",
+                            data: {project_id:$("#modules-project_id").val(), milestone:$(this).val()},
+                            success: function(data) {
+                                $("#boms-module_id").empty();
+                                if (data != "null") {
+                                    var data = $.parseJSON(data);
+                                    option = \'<option value="">请选择模块 ...</option>\';
+                                    $("#boms-module_id").append(option);
+                                    $.each(data, function() {
+                                        option = \'<option value="\' + this.module_id + \'">\' + this.name + \'</option>\';
+                                        $("#boms-module_id").append(option);
+                                    });
+                                }
+                            },
+                            timeout: 3000,
+                            error: function(){
+                                alert("错误：请求超时无响应");
+                            }
+                        });'
+                ]
+                ) ?>
+        </div>
+        <div class="col-lg-4">
+            <?= $form->field($model, 'module_id')->dropDownList(empty($modules_name_dropDownList)? [] : ArrayHelper::map($modules_name_dropDownList, 'module_id', 'name')) ?>
+        </div>
+    </div>
+    <!--?= $form->field($b_ms, 'material_id')->label('Part No.') ?-->
+
+    <?= $form->field($model, 'assy_level')->textInput() ?>
+
+    <?= $form->field($model, 'purchase_level')->dropDownList([
+        '' => '',
+        'P' => 'P'
+    ]) ?>
+
+    <?= $form->field($model, 'qty')->textInput() ?>
+
+    <?= $form->field($model, 'ref_no')->textInput(['maxlength' => true]) ?>
+
+    <?php
+        $data = ArrayHelper::map($materials, 'material_id', 'part_no');
+        foreach ($b_ms as $index => $b_m) {
+            if      ($index == 0) echo $form->field($b_m, "[$index]material_id")->widget(Select2::classname(), [
+                'data' => $data,
+                'options' => ['placeholder' => '请选择料号 ...'],
+            ])->label('Part No.');
+            else if ($index == 1) echo $form->field($b_m, "[$index]material_id")->widget(Select2::classname(), [
+                'data' => $data,
+                'options' => ['placeholder' => '请选择料号 ...'],
+                'pluginOptions' => [
+                    'allowClear' => true
+                ],
+            ])->label('2nd Source P/N');
+            else if ($index == 2) echo $form->field($b_m, "[$index]material_id")->widget(Select2::classname(), [
+                'data' => $data,
+                'options' => ['placeholder' => '请选择料号 ...'],
+                'pluginOptions' => [
+                    'allowClear' => true
+                ],
+            ])->label('3rd Source P/N');
+        }
+    ?>
+
+    <!--?= $form->field($b_ms[1], '[{1}]material_id')->label('2nd Source P/N') ?-->
+
+    <!--?= $form->field($b_ms[2], '[{2}]material_id')->label('3rd Source P/N') ?-->
+
+    <?= $form->field($model, 'remark')->textInput(['maxlength' => true]) ?>
+
+    <!--?= $form->field($model, 'date_entered')->textInput() ?-->
+
+
+    <!--?php
+    yii\helpers\VarDumper::dump($b_ms[0]);
+    echo '<br />';
+    $i = 1;
+    foreach ($b_ms as $b_m) {
+        yii\helpers\VarDumper::dump($b_m);
+        echo '<br />';
+        $i++;
+    }
+    foreach ($b_ms as $index => $v) {
+
+        yii\helpers\VarDumper::dump($index);
+        echo '<br />';
+        yii\helpers\VarDumper::dump($v);
+        echo $form->field($v, "[{$index}]material_id")->label($v->material_id);
+     //   echo $form->field($v, "[{$index}]")->dropDownList(['书籍'=>'书籍','生活用品'=>'生活用品','电子产品'=>'电子产品','其他'=>'其他'])->label($v->name);
+     //   echo $form->field($v, "[{$index}]")->label($v->name);
+    }
+    ?-->
+
+    <div class="form-group">
+        <?= Html::submitButton($model->isNewRecord ? Yii::t('common', 'Create') : Yii::t('common', 'Update'), ['class' => $model->isNewRecord ? 'btn btn-success' : 'btn btn-primary']) ?>
+    </div>
+
+    <?php ActiveForm::end(); ?>
+
+</div>

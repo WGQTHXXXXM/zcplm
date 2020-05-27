@@ -1,0 +1,157 @@
+<?php
+
+namespace frontend\models;
+
+use backend\models\User;
+use yii\base\Model;
+use yii\data\ActiveDataProvider;
+use Yii;
+
+/**
+ * TasksSearch represents the model behind the search form about `frontend\models\Tasks`.
+ */
+class TasksSearch extends Tasks
+{
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['id', 'status', 'type', 'type_id',], 'integer'],
+            [['name', 'remark','date','user_id'], 'safe'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function scenarios()
+    {
+        // bypass scenarios() implementation in the parent class
+        return Model::scenarios();
+    }
+
+    /**
+     * Creates data provider instance with search query applied
+     *
+     * @param array $params
+     *
+     * @return ActiveDataProvider
+     */
+    public function search($params)
+    {
+        $tbl = UserTask::find()->select('(max(updated_at)-min(created_at)) as sub,task_id')->groupBy('task_id');
+        $query = Tasks::find()->select('tasks.*,tbl.sub as taskSub')->leftJoin(['tbl'=>$tbl],'tbl.task_id=tasks.id');
+        //$query->leftJoin('user_task','tasks.id=user_task.task_id',[]);
+        // add conditions that should always apply here
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+            'pagination' => [
+                'pagesize' => '10',
+            ],
+            'sort' => ['defaultOrder' => ['date' => SORT_DESC]], //默认 时间倒序
+
+        ]);
+
+        $dataProvider->sort->attributes['taskSub'] = [
+            'asc' => ['tbl.sub' => SORT_ASC],
+            'desc' => ['tbl.sub' => SORT_DESC],
+        ];
+
+
+        $this->load($params);
+
+
+        if (!$this->validate()) {
+            // uncomment the following line if you do not want to return any records when validation fails
+            // $query->where('0=1');
+            return $dataProvider;
+        }
+
+        //用户的搜索
+        $user = '';
+        if(!empty($this->user_id))
+        {
+            $user = User::findOne(['username'=>$this->user_id]);
+            if(empty($user))
+                $user = -1;
+            else
+                $user = $user->id;
+        }
+        //任务名搜索
+        if(!empty($this->name))
+        {
+            $tempName = $this->name;
+            //物料
+            $tempMtr1 = ModifyMaterial::find()->where(['like','zc_part_number',$tempName])->select('id')->column();
+            $tempMtr2 = ModifyMaterial::find()->where(['like','part_name',$tempName])->select('id')->column();
+            $tempMtr = array_merge($tempMtr1,$tempMtr2);
+            $arrTaskMtr = [Tasks::TASK_TYPE_MATERIAL,Tasks::TASK_TYPE_MTR_APPROVER1,Tasks::TASK_TYPE_MTR_APPROVER2];
+            if(!empty($tempMtr))
+                $query->andFilterWhere(['and',
+                    ['in','type',$arrTaskMtr ],
+                    ['in', 'type_id', $tempMtr]]);
+            else
+                $query->andFilterWhere(['not in','type',$arrTaskMtr]);
+            //上传的BOM
+            $tempMtrBom = Materials::find()->where(['like','zc_part_number',$tempName])->select('material_id')->column();
+            $tempBomsParent = BomsParent::find()->where(['in','parent_id',$tempMtrBom])->select('id')->column();
+            if(!empty($tempBomsParent)) {
+                if(!empty($tempMtr))
+                    $query->orFilterWhere(['and',['type'=>Tasks::TASK_TYPE_BOM_UPLOAD],['in', 'type_id',$tempBomsParent]]);
+                else
+                    $query->andFilterWhere(['and',['type'=>Tasks::TASK_TYPE_BOM_UPLOAD],['in', 'type_id',$tempBomsParent]]);
+            }
+            else
+                $query->andFilterWhere(['<>','type',Tasks::TASK_TYPE_BOM_UPLOAD]);
+            //ECR
+            $tempEcr = Ecr::find()->where(['like','serial_number',$tempName])->select('id')->column();
+            $arrTaskEcr = [Tasks::TASK_TYPE_ECR1,Tasks::TASK_TYPE_ECR2,Tasks::TASK_TYPE_ECR3,Tasks::TASK_TYPE_ECR4];
+            if(!empty($tempEcr)) {
+                if(empty($tempMtr)&&empty($tempBomsParent))
+                    $query->andFilterWhere(['and',['in', 'type',$arrTaskEcr],['in', 'type_id',$tempEcr]]);
+                else
+                    $query->orFilterWhere(['and',['in', 'type',$arrTaskEcr],['in', 'type_id',$tempEcr]]);
+            }
+            else
+                $query->andFilterWhere(['not in','type',$arrTaskEcr]);
+            //ECN
+            $tempEcn = Ecn::find()->where(['like','serial_number',$tempName])->select('id')->column();
+            $arrTaskEcn = [Tasks::TASK_TYPE_ECN1,Tasks::TASK_TYPE_ECN2,Tasks::TASK_TYPE_ECN3,Tasks::TASK_TYPE_ECN4];
+            if(!empty($tempEcn)) {
+                if(empty($tempMtr)&&empty($tempBomsParent)&&empty($tempEcr))
+                    $query->andFilterWhere(['and',['in', 'type',$arrTaskEcn],['in', 'type_id',$tempEcn]]);
+                else
+                    $query->orFilterWhere(['and',['in', 'type',$arrTaskEcn],['in', 'type_id',$tempEcn]]);
+            }
+            else
+                $query->andFilterWhere(['not in','type',$arrTaskEcn]);
+            //项目文件上传
+//            $tempPjtFile = ProjectProcess::find()->where(['like','name',$tempName])->select('id')->column();
+//            if(!empty($tempPjtFile))
+//                $query->orFilterWhere(['and',['type'=>Tasks::TASK_TYPE_PROJECT_FILE_UPLOAD],['in', 'type_id',$tempPjtFile]]);
+//            else
+                $query->andFilterWhere(['<>','type',Tasks::TASK_TYPE_PROJECT_FILE_UPLOAD]);
+        }
+        // grid filtering conditions
+        $query->andFilterWhere([
+            'status' => $this->status,
+            'user_id' => $user,
+        ]);
+
+        $ctimeBg = '';
+        $ctimeEn = '';
+        if(!empty($this->date)){
+            $ctimeBg = strtotime(substr(str_replace(['年','月','日'],'-',$this->date),0,-1));
+            $ctimeEn = $ctimeBg+Yii::$app->params['timeStrapOneDay'];
+        }
+
+        $query->andFilterWhere(['between','date',$ctimeBg,$ctimeEn]);
+
+        $query->andFilterWhere(['like', 'remark', $this->remark]);
+        //echo $query->createCommand()->getRawSql();die;
+
+        return $dataProvider;
+    }
+}

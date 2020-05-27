@@ -1,0 +1,664 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\DetailView;
+use kartik\grid\GridView;
+use frontend\models\EcnAltgroup;
+use frontend\web\JQWidgetsAsset;
+/* @var $this yii\web\View */
+/* @var $modelEcn frontend\models\Ecn */
+/* @var $changeSets frontend\models\EcnChangeSet */
+
+$this->title = Yii::t('common','View');
+$this->params['breadcrumbs'][] = ['label' => Yii::t('common', 'Ecns'), 'url' => ['index']];
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="row"><div class="col-md-12">
+<div class="ecn-view">
+
+    <h1>
+        <?php
+        echo Html::encode($this->title);
+
+        if(!empty($modelEcn->ecr))
+            echo Html::a('查看相关ECR', ['/ecr/view','id'=>$modelEcn->ecr->id],
+                ['class' => 'btn btn-success','style'=>'margin-left:200px']);
+
+        ?>
+    </h1>
+
+    <?= DetailView::widget([
+        'model' => $modelEcn,
+        'template' => '<tr><th width="130">{label}</th><td>{value}</td></tr>',
+        'attributes' => [
+            'serial_number',
+            [
+                'attribute'=>'projectName',
+                'label'=>'项目名称'
+            ],
+            [
+                'attribute'=>'projectProcess',
+                'label'=>'项目阶段'
+            ],
+            [
+                'attribute'=>'partNo',
+                'label'=>'机种智车料号'
+            ],
+            [
+                'attribute'=>'description',
+                'label'=>'机种智车料号描述'
+            ],
+            [
+                'attribute'=>'background',
+                'label'=>'变更背景'
+            ],
+            [
+                'attribute'=>'content',
+                'label'=>'变更内容'
+            ],
+            [
+                'attribute'=>'created_at',
+                'value'=>date('Y-m-d H:i:s',$modelEcn->created_at),
+            ],
+            [
+                'attribute'=>'updated_at',
+                'value'=>date('Y-m-d H:i:s',$modelEcn->updated_at)
+            ],
+            [
+                'attribute'=>'change_now',
+                'value'=>$modelEcn::CHANGE_NOW[$modelEcn->change_now]
+            ],
+            [
+                'attribute'=>'affect_stock',
+                'value'=>$modelEcn::AFFECT_STOCK[$modelEcn->affect_stock]
+            ],
+            'remark',
+        ],
+    ]) ?>
+
+</div>
+<br><br><br>
+<div>
+
+    <?php
+    if($modelEcn->is_attachment == 0){//如果是输入上传的变更
+        echo '<h1>变更集合</h1>';
+        foreach ($changeSets as $k=>$changeSet)
+        {
+            switch ($changeSet->type)
+            {
+                case $changeSet::CT_REPLACE:
+                    $str = '<input style="width:56%;text-align:left" id="ipt'.$k.'" myIndex="'.$k.'" readonly="" class="btn btn-primary" type="button" value="'.$changeSet->serial_number.'">'.
+                        '<div id="div'.$k.'"><div class="row">' .
+                        '<div class="col-md-3">' .
+                        '<div class="form-group">' .
+                        '<label class="control-label">变更类型</label>'.
+                        '<select disabled="" class="form-control" >'.
+                        '<option>替换</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">目前零件（旧零件）</label>'.
+                        '<input value="'.$changeSet->partOrg->zc_part_number.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">目前零件名称</label>'.
+                        '<input value="'.$changeSet->partOrg->description.'" class="form-control" disabled="" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">替代零件（新零件）</label>'.
+                        '<input value="'.$changeSet->partNew->zc_part_number.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">替代零件名称</label>'.
+                        '<input value="'.$changeSet->partNew->description.'" class="form-control" disabled="" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">' .
+                        '<div class="col-md-3">' .
+                        '<div class="form-group">' .
+                        '<label class="control-label">库存处理</label>'.
+                        '<select disabled="" class="form-control">'.
+                        '<option>'.$changeSet::STOCK_PROCESSING[$changeSet->stock_processing].'</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<label class="control-label">使用者</label>'.
+                        '<div class="row"><div class="col-md-6"><table class="table table-striped table-bordered table-hover">'.
+                        '<thead><tr><th>上阶智车料号</th> <th>描述</th></tr></thead><tbody>';
+                    foreach($changeSet->partUser as $val)
+                    {
+                        $str .= '<tr><td>'.$val->extBomsChild->extBomsParent->material->zc_part_number.'</td><td>'.$val->extBomsChild->extBomsParent->material->description.'</td></tr>';
+                    }
+                    $str .= '</tbody></table></div></div></div><br/><br/>';
+                    echo $str;
+                    break;
+                case $changeSet::CT_ADJQTY:
+                    $str =  '<input style="width:56%;text-align:left;" id="ipt'.$k.'" myIndex="'.$k.'" readonly="" class="btn btn-primary" type="button" value="'.$changeSet->serial_number.'">'.
+                        '<div id="div'.$k.'"><div class="row">' .
+                        '<div class="col-md-3">' .
+                        '<div class="form-group">' .
+                        '<label class="control-label">变更类型</label>'.
+                        '<select disabled="" class="form-control" >'.
+                        '<option>调整数量</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">调整零件</label>'.
+                        '<input value="'.$changeSet->partOrg->zc_part_number.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">调整零件名称</label>'.
+                        '<input value="'.$changeSet->partOrg->description.'" class="form-control" disabled="" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">'.
+                        '<div class="col-md-1">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">原本数量</label>'.
+                        '<input value="'.$changeSet->original_qty.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-1">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">调整类型</label>'.
+                        '<select disabled="" class="form-control" >'.
+                        '<option>'.$changeSet::ADJQTY_TYPE[$changeSet->adj_type].'</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-1">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">调整数量</label>'.
+                        '<input value="'.$changeSet->qty.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-6">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">调整位置</label>'.
+                        '<input value="'.$changeSet->position.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">' .
+                        '<div class="col-md-3">' .
+                        '<div class="form-group">' .
+                        '<label class="control-label">库存处理</label>'.
+                        '<select disabled="" class="form-control" >'.
+                        '<option>'.$changeSet::STOCK_PROCESSING[$changeSet->stock_processing].'</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<label class="control-label">使用者</label>'.
+                        '<div class="row"><div class="col-md-6"><table class="table table-striped table-bordered table-hover">'.
+                        '<thead><tr><th>上阶智车料号</th> <th>描述</th></tr></thead><tbody>';
+                    foreach($changeSet->partUser as $val)
+                    {
+                        $str .= '<tr><td>'.$val->extBomsChild->extBomsParent->material->zc_part_number.'</td><td>'.$val->extBomsChild->extBomsParent->material->description.'</td></tr>';
+                    }
+                    $str .= '</tbody></table></div></div></div><br/><br/>';
+                    echo $str;
+                    break;
+                case $changeSet::CT_ADD:
+                    $str = '<input style="width:56%;text-align:left" id="ipt'.$k.'" myIndex="'.$k.'" readonly="" class="btn btn-primary" type="button" value="'.$changeSet->serial_number.'">'.
+                        '<div id="div'.$k.'"><div class="row">' .
+                        '<div class="col-md-3">' .
+                        '<div class="form-group">' .
+                        '<label class="control-label">变更类型</label>'.
+                        '<select disabled="" class="form-control" >'.
+                        '<option>增加</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">新增零件</label>'.
+                        '<input value="'.$changeSet->partOrg->zc_part_number.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">新增零件名称</label>'.
+                        '<input value="'.$changeSet->partOrg->description.'" class="form-control" disabled="" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">参照零件</label>'.
+                        '<input value="'.$changeSet->partNew->zc_part_number.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">参照零件名称</label>'.
+                        '<input value="'.$changeSet->partNew->description.'" class="form-control" disabled="" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">'.
+                        '<div class="col-md-1">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">调整数量</label>'.
+                        '<input value="'.$changeSet->qty.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-6">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">调整位置</label>'.
+                        '<input value="'.$changeSet->position.'" class="form-control" disabled="" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">' .
+                        '<div class="col-md-3">' .
+                        '<div class="form-group">' .
+                        '<label class="control-label">库存处理</label>'.
+                        '<select disabled="" class="form-control">'.
+                        '<option>'.$changeSet::STOCK_PROCESSING[$changeSet->stock_processing].'</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<label class="control-label">使用者</label>'.
+                        '<div class="row"><div class="col-md-6"><table class="table table-striped table-bordered table-hover">'.
+                        '<thead><tr><th>上阶智车料号</th> <th>描述</th></tr></thead><tbody>';
+                    foreach($changeSet->partUser as $val)
+                    {
+                        $str .= '<tr><td>'.$val->extBomsChild->extBomsParent->material->zc_part_number.'</td><td>'.$val->extBomsChild->extBomsParent->material->description.'</td></tr>';
+                    }
+                    $str .= '</tbody></table></div></div></div><br/><br/>';
+                    echo $str;
+                    break;
+                case $changeSet::CT_REMOVE:
+                    $str =  '<input style="width:56%;text-align:left;" id="ipt'.$k.'" myIndex="'.$k.'" readonly="" class="btn btn-primary" type="button" value="'.$changeSet->serial_number.'">'.
+                        '<div id="div'.$k.'"><div class="row">' .
+                        '<div class="col-md-3">' .
+                        '<div class="form-group">' .
+                        '<label class="control-label">变更类型</label>'.
+                        '<select disabled="" class="form-control" >'.
+                        '<option>删除</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">移除零件</label>'.
+                        '<input value="'.$changeSet->partOrg->zc_part_number.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">移除零件名称</label>'.
+                        '<input value="'.$changeSet->partOrg->description.'" class="form-control" disabled="" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">' .
+                        '<div class="col-md-3">' .
+                        '<div class="form-group">' .
+                        '<label class="control-label">库存处理</label>'.
+                        '<select disabled="" class="form-control" >'.
+                        '<option>'.$changeSet::STOCK_PROCESSING[$changeSet->stock_processing].'</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<label class="control-label">使用者</label>'.
+                        '<div class="row"><div class="col-md-6"><table class="table table-striped table-bordered table-hover">'.
+                        '<thead><tr><th>上阶智车料号</th> <th>描述</th></tr></thead><tbody>';
+                    foreach($changeSet->partUser as $val)
+                    {
+                        $str .= '<tr><td>'.$val->extBomsChild->extBomsParent->material->zc_part_number.'</td><td>'.$val->extBomsChild->extBomsParent->material->description.'</td></tr>';
+                    }
+                    $str .= '</tbody></table></div></div></div><br/><br/>';
+                    echo $str;
+
+                    break;
+                case $changeSet::CT_ALTGROUP:
+                    $str =  '<input style="width:56%;text-align:left;" id="ipt'.$k.'" myIndex="'.$k.'" readonly="" class="btn btn-primary" type="button" value="'.$changeSet->serial_number.'">'.
+                        '<div id="div'.$k.'"><div class="row">' .
+                        '<div class="col-md-3">' .
+                        '<div class="form-group">' .
+                        '<label class="control-label">变更类型</label>'.
+                        '<select disabled="" class="form-control" >'.
+                        '<option>替代群组</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">变更零件</label>'.
+                        '<input value="'.$changeSet->partOrg->zc_part_number.'" disabled="" class="form-control" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="col-md-3">'.
+                        '<div class="form-group">'.
+                        '<label class="control-label">变更零件名称</label>'.
+                        '<input value="'.$changeSet->partOrg->description.'" class="form-control" disabled="" type="text">'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<div class="row">' .
+                        '<div class="col-md-3">' .
+                        '<div class="form-group">' .
+                        '<label class="control-label">库存处理</label>'.
+                        '<select disabled="" class="form-control" >'.
+                        '<option>'.$changeSet::STOCK_PROCESSING[$changeSet->stock_processing].'</option>'.
+                        '</select>'.
+                        '</div>'.
+                        '</div>'.
+                        '</div>'.
+                        '<label class="control-label">使用者</label>'.
+                        '<div class="row"><table class="table table-striped table-bordered table-hover">'.
+                        '<thead><tr><th>上阶智车料号</th> <th>描述</th><th>一供</th><th>二供</th><th>三供</th><th>四供</th></tr></thead><tbody>';
+                    foreach($changeSet->partUser as $val)
+                    {   //加上阶料号和描述
+                        $str .= '<tr><td>'.$val->extBomsChild->extBomsParent->material->zc_part_number.'</td><td>'.$val->extBomsChild->extBomsParent->material->description.
+                            '</td><td><input type="radio">'.$changeSet->partOrg->zc_part_number.'</td><td><input disabled="" type="radio"';
+                        //加二供的单选框
+                        if($val->altGroup->mfr_no==2)
+                            $str .= ' checked="">';
+                        else
+                            $str .= '>';
+                        if(!empty($val->extBomsChild->zcPartNo2->zc_part_number))
+                            $str .= $val->extBomsChild->zcPartNo2->zc_part_number.'</td><td><input disabled="" type="radio"';
+                        else
+                            $str .= 'null</td><td><input disabled="" type="radio"';
+                        //加三供的单选框
+                        if($val->altGroup->mfr_no==3)
+                            $str .= ' checked="">';
+                        else
+                            $str .= '>';
+                        if(!empty($val->extBomsChild->zcPartNo3->zc_part_number))
+                            $str .= $val->extBomsChild->zcPartNo3->zc_part_number.'</td><td><input disabled="" type="radio"';
+                        else
+                            $str .= 'null</td><td><input disabled="" type="radio"';
+                        //加四供的单选框
+                        if($val->altGroup->mfr_no==4)
+                            $str .= ' checked="">';
+                        else
+                            $str .= '>';
+                        if(!empty($val->extBomsChild->zcPartNo4->zc_part_number))
+                            $str .= $val->extBomsChild->zcPartNo4->zc_part_number.'</td>';
+                        else
+                            $str .= 'null</td>';
+                        $str .= '<td><select disabled=""><option>'.EcnAltgroup::GROUP_CHANGE_DETAIL[$val->altGroup->mdf_type].'</option></select></td>';
+                        if(!empty($val->altGroup->mdfPart))
+                            $str .= '<td><input value="'.$val->altGroup->mdfPart->zc_part_number.'" disabled="" type="text"></td></tr>';
+                        else
+                            $str .= '<td><input value="" disabled="" type="text"></td></tr>';
+                    }
+                    $str .= '</tbody></table></div></div><br/><br/>';
+                    echo $str;
+
+                    break;
+            }
+        }
+    } else {//ECN附件的形式变更
+        echo '<h1>变更</h1>';
+        echo '<h3 style="display: inline">附件：</h3>'. \yii\helpers\Html::a($dataAttachment->name,
+                ['ecr/download', 'pathFile' => $dataAttachment->path, 'filename' => $dataAttachment->name],
+                ['style'=>'font-size:24px;']);
+        echo '<br><br><h3 style="display: inline">变更的BOM：</h3>';
+        echo '<p></p><div id="treeGrid" class="box"></div>';
+
+    }
+    ?>
+</div>
+<br><br><br>
+<div class="row">
+    <div class="col-md-6">
+        <h1>审批情况</h1>
+        <?= GridView::widget([
+            'dataProvider' => $dataProvider,
+            'formatter' => ['class' => 'yii\i18n\Formatter','nullDisplay' => ''],
+            'striped' => true,
+            'export' => false,
+            'toggleData' => false,
+            'hover'=>true,
+            'bordered'=>true,
+            'panel' => ['type' => 'success', 'heading' => "审批清单", 'footer' => false],
+            'columns' => [
+                [
+                    'attribute'=>'pid',
+                    'group'=>true,  // enable grouping,
+                    'groupedRow'=>true,                    // move grouped column to a single grouped row
+                    'groupOddCssClass'=>'kv-group-even',  // configure odd group cell css class
+                    'groupEvenCssClass'=>'kv-group-even', // configure even group cell css class
+                ],
+                [
+                    'attribute' => 'user_id',
+                    'label'=>'审批人',
+                ],
+                [
+                    'attribute' => 'status',
+                    'label'=>'审批状态',
+                    'value'=>function($model){
+                        if(is_null($model['status']))
+                            return '流程没到';
+                        return \frontend\models\UserTask::STATUS_APPROVE[$model['status']];
+                    }
+                ],
+                'remark',
+//                [
+//                    'attribute' => 'created_at',
+//                    'label'=>'创建时间',
+//                    'format' => ['date','php:Y-m-d H:i:s']
+//                ],
+//                [
+//                    'attribute' => 'updated_at',
+//                    'label'=>'更新时间',
+//                    'format' => ['date','php:Y-m-d H:i:s']
+//                ],
+            ],
+        ]); ?>
+
+    </div>
+</div>
+
+</div></div>
+<br><br><br>
+<?php
+if($modelEcn->is_attachment == 0)//如果是输入变更
+{
+$js=<<<JS
+alert(123);
+for (var i=0;1;i++)
+{
+    if($('#ipt'+i).length == 0)
+        break;
+    $('#ipt'+i).on('click',function() {
+        var myIndex = $(this).attr('myIndex');
+        if($('#div'+myIndex).hasClass('hide'))
+            $('#div'+myIndex).removeClass('hide');
+        else
+            $('#div'+myIndex).addClass('hide');
+    }) 
+}
+JS;
+    $this->registerJs($js);
+}
+else
+{
+    JQWidgetsAsset::register($this);
+    $zc_part_number = Yii::t('material', 'Zhiche Part Number');
+    $zc_part_number2 = Yii::t('material', 'Second Zhiche Part Number');
+    $zc_part_number3 = Yii::t('material', 'third Zhiche Part Number');
+    $zc_part_number4 = Yii::t('material', 'fourth Zhiche Part Number');
+    $mfr_part_number = Yii::t('material', 'Manufacturer Part Number');
+    $mfr_part_number2 = Yii::t('material', 'Second Manufacturer Part Number');
+    $mfr_part_number3 = Yii::t('material', 'third Manufacturer Part Number');
+    $mfr_part_number4 = Yii::t('material', 'fourth Manufacturer Part Number');
+    $manufacturer = Yii::t('material', 'Manufacturer');
+    $manufacturer2 = Yii::t('bom', 'Second Manufacturer');
+    $manufacturer3 = Yii::t('bom', 'Third Manufacturer');
+    $manufacturer4 = Yii::t('bom', 'Fourth Manufacturer');
+    $purchase_level = Yii::t('material', 'Purchase Level');
+    $part_name = Yii::t('material', 'Part Name');
+    $description = Yii::t('material', 'Description');
+    $unit = Yii::t('material', 'Unit');
+    $pcb_footprint = Yii::t('material', 'Pcb Footprint');
+    $qty = Yii::t('bom', 'Qty');
+    $ref_no = Yii::t('bom', 'Reference No.');
+    $assy_level = Yii::t('bom', 'Assy Level');
+    $status = Yii::t('bom', 'Status');
+    $notRelease = Yii::t('bom', 'Not Release');
+    $release = Yii::t('bom', 'Release');
+    $urlAjax = "/boms/index?material_id=".$mdlEcnPbomAttachment[0]."&forward=1";
+$js=<<<JS
+    var source =
+    {
+        dataType: "json",
+        dataFields: [
+            { name: 'id', type: 'number' },
+            { name: 'level', type: 'number' },
+            { name: 'parent_id', type: 'number' },
+            { name: 'child_id', type: 'number' },
+            { name: 'parent_version', type: 'number' },
+         //   { name: 'child_version', type: 'number' },
+            { name: 'zc_part_number', type: 'string' },
+            { name: 'purchase_level', type: 'string' },
+            { name: 'part_name', type: 'string' },
+            { name: 'description', type: 'string' },
+            { name: 'unit', type: 'string' },
+            { name: 'pcb_footprint', type: 'string' },
+            { name: 'qty', type: 'number' },
+            { name: 'ref_no', type: 'string' },
+            { name: 'mfr_part_number', type: 'string' },
+            { name: 'manufacturer', type: 'string' },
+            { name: 'zc_part_number2', type: 'string' },
+            { name: 'mfr_part_number2', type: 'string' },
+            { name: 'manufacturer2', type: 'string' },
+            { name: 'zc_part_number3', type: 'string' },
+            { name: 'mfr_part_number3', type: 'string' },
+            { name: 'manufacturer3', type: 'string' },
+            { name: 'zc_part_number4', type: 'string' },
+            { name: 'mfr_part_number4', type: 'string' },
+            { name: 'manufacturer4', type: 'string' },
+            { name: 'status', type: 'number' },
+            { name: 'pv_release_time', type: 'date' },
+            { name: 'pv_effect_date', type: 'date' },
+            { name: 'pv_expire_date', type: 'date' },
+            { name: 'bom_expire_date', type: 'date' },
+          //  { name: 'type', type: 'number' },
+          //  { name: 'creater_id', type: 'number' },
+          //  { name: 'creater', type: 'string' },
+          //  { name: 'created_at', type: 'date' },
+          //  { name: 'updated_at', type: 'date' }
+            { name: 'children', type: 'array' }
+        ],
+        hierarchy:
+        {
+            root: 'children'
+        },
+        id: 'child_id',
+        url: '$urlAjax'
+    };
+    var dataAdapter = new $.jqx.dataAdapter(source);
+    ////////自适应屏幕高度////////////////
+    // create Tree Grid
+    $("#treeGrid").jqxTreeGrid(
+    {
+    //    width: 850,
+        width: '100%',
+        height: '500',
+        source: dataAdapter,
+        sortable: true,
+        columnsResize: true,
+        altRows: true,
+        icons: true,
+        ready: function()
+        {
+            $('#treeGrid').jqxTreeGrid({enableBrowserSelection: true });
+            $("#treeGrid").jqxTreeGrid('expandAll');
+        },
+        columns: [
+          { 
+            text: '$zc_part_number', dataField: 'zc_part_number', width: 260, 
+            cellsRenderer: function (rowKey, dataField, value, data) {
+                var bom_expire_date = new Date(data.bom_expire_date);
+                bom_expire_date = bom_expire_date.getTime();
+                return "<a href='#' onclick='rowClick("+rowKey+', '+data.child_id+', '+bom_expire_date+")'>"+value+"</a>"; //+rowKey+', '+data.parent_id+', '+value+', '+data.child_id+
+            }
+          },
+//          {
+//            text: '$status', dataField: 'status', width: 60,
+//            cellsRenderer: function (rowKey, dataField, value, data) {
+//                switch (value) {
+//                    case 0:
+//                        status = '$notRelease';
+//                        break;
+//                    case 1:
+//                        status = '$release';
+//                        break;
+//                }
+//                return status;
+//            }
+//          },
+//          { text: '$assy_level', dataField: 'level', width: 60 },
+          { text: '$purchase_level', dataField: 'purchase_level', width: 60 },
+          { text: '$part_name', dataField: 'part_name', width: 100 },
+          { text: '$description', dataField: 'description', width: 300 },
+//          { text: '$pcb_footprint', dataField: 'pcb_footprint', width: 100 },
+          { text: '$qty', dataField: 'qty', width: 50 },
+          { text: '$unit', dataField: 'unit', width: 50 },
+          { text: '$ref_no', dataField: 'ref_no', width: 150 },
+          { text: '$mfr_part_number', dataField: 'mfr_part_number', width: 150 },
+          { text: '$manufacturer', dataField: 'manufacturer', width: 100 },
+          { text: '$zc_part_number2', dataField: 'zc_part_number2', width: 150 },
+//          { text: '$mfr_part_number2', dataField: 'mfr_part_number2', width: 150 },
+//          { text: '$manufacturer2', dataField: 'manufacturer2', width: 110 },
+//          { text: '$zc_part_number3', dataField: 'zc_part_number3', width: 150 },
+//          { text: '$mfr_part_number3', dataField: 'mfr_part_number3', width: 150 },
+//          { text: '$manufacturer3', dataField: 'manufacturer3', width: 110 },
+//          { text: '$zc_part_number4', dataField: 'zc_part_number4', width: 150 },
+//          { text: '$mfr_part_number4', dataField: 'mfr_part_number4', width: 150 },
+//          { text: '$manufacturer4', dataField: 'manufacturer4', width: 110 }
+        ],
+    });
+
+
+
+
+JS;
+    $this->registerJs($js);
+}
+
+
+
+?>
+<?php
+require('../views/layouts/view-approve.php');
+
+?>
+

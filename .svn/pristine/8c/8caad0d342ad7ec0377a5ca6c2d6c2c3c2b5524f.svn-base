@@ -1,0 +1,263 @@
+<?php
+
+namespace frontend\controllers;
+
+use frontend\models\ProjectAttachment;
+use frontend\models\Tasks;
+use Yii;
+use frontend\models\Projects;
+use frontend\models\ProjectsSearch;
+use yii\data\ActiveDataProvider;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+
+
+use frontend\models\ProjectProcess;
+use frontend\models\ProjectProcessTemplate;
+
+
+/**
+ * ProjectsController implements the CRUD actions for Projects model.
+ */
+class ProjectsController extends Controller
+{
+
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all Projects models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+        $searchModel = new ProjectsSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**
+     * Displays a single Projects model.
+     * @param string $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        return $this->render('view', [
+            'model' => $this->findModel($id),
+        ]);
+    }
+
+    /**
+     * Creates a new Projects model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate()
+    {
+        $model = new Projects();
+        $model->status = 1;
+        $model->precent = 0;
+        $model->working = 0;
+
+        $trans = Yii::$app->db->beginTransaction();
+        if ($model->load(Yii::$app->request->post()) )
+        {
+            $model->created_at = strtotime(substr(str_replace(['年','月','日'],'-',$model->created_at),0,-1));
+            $model->end_at = strtotime(substr(str_replace(['年','月','日'],'-',$model->end_at),0,-1));
+
+            if($model->save())
+            {
+                $id = $model->attributes['id'];
+                $name = $model->attributes['name'];
+                //获得里程碑的模板的数据
+                $dataTreeTpl = ProjectProcessTemplate::find()->select('id,root,lft,rgt,lvl,name')->OrderBy('root,lft')->all();
+                //生成SQL语句
+                $strSQL = "INSERT INTO project_process(root,lft,rgt,lvl,name) VALUES";
+                $dataTreeTpl[0]->name = $name;
+                foreach($dataTreeTpl as $key=>$val)
+                    $strSQL .= "($id,$val->lft,$val->rgt,$val->lvl,'$val->name'),";
+                if(Yii::$app->db->createCommand(trim($strSQL,','))->execute()){
+                    //更新项目阶段
+                    $workingid = ProjectProcess::find()->where(['root'=>$id,'lvl'=>1])->OrderBy('lft')->One()->id;
+                    $model->working = $workingid;
+                    if($model->save())
+                    {
+                        $trans->commit();
+                        return $this->redirect(['project-manage-modify', 'id' => $id]);
+                    }
+                }
+                $trans->rollBack();
+            }
+        }
+        return $this->render('create', [
+            'model' => $model,
+        ]);
+
+    }
+
+    /**
+     * Updates an existing Projects model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param string $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+
+
+        if ($model->load(Yii::$app->request->post()))
+        {
+            $model->created_at = strtotime(substr(str_replace(['年','月','日'],'-',$model->created_at),0,-1));
+            $model->end_at = strtotime(substr(str_replace(['年','月','日'],'-',$model->end_at),0,-1));
+            if($model->save()) {
+                ProjectProcess::UpdateAll(['name'=>$model->name],['root'=>$id,'lvl'=>0]);
+                return $this->redirect(['project-manage-modify', 'id' => $id]);
+            }
+        } else {
+            return $this->render('update', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Deletes an existing Projects model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param string $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the Projects model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param string $id
+     * @return Projects the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = Projects::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    /*
+     * 项目管理模板
+     */
+    public function actionShowTreeTemplate()
+    {
+        $dataMsView = ProjectProcessTemplate::find()->select('id,root,lft,rgt,lvl,name,disabled,collapsed')->OrderBy('lft');
+        return $this->render('show-tree-template',['dataMsView'=>$dataMsView]);
+    }
+
+    /*
+     * 项目管理修改
+     */
+    public function actionProjectManageModify($id)
+    {
+        $dataMsView = ProjectProcess::find()->select('id,root,lft,rgt,lvl,name,disabled,selected,collapsed')
+            ->OrderBy('root,lft')->where(['root'=>"$id"]);
+        return $this->render('project-manage-modify',['dataMsView'=>$dataMsView]);
+    }
+
+    /*
+     * 项目管理查看
+     */
+    public function actionProjectManageView($id,$lft=null,$rgt=null)
+    {
+        $model = Projects::findOne($id);
+        if($lft == null)
+        {//如果没有这个参数说明是默认的阶段
+            $curMdl = $model->process;
+            $lft = $curMdl->lft;
+            $rgt = $curMdl->rgt;
+        }
+        else//否则是点击的模块
+        {
+            $curMdl = ProjectProcess::find()->where(['root'=>$id,'lvl'=>1,'lft'=>$lft,'rgt'=>$rgt])->one();
+        }
+
+        $tblTasks = Tasks::find()->where(['type'=>Tasks::TASK_TYPE_PROJECT_FILE_UPLOAD])->groupBy('type_id')
+            ->select('type_id,remark,min(status) as status');
+
+        $query = ProjectProcess::find()->alias('l3')->select('l3.name as name,l2.id as pid,
+            tasks.status as taskStatus,tasks.remark as taskRemark,
+            file.created_at as ctime,file.updated_at as utime,l3.id,user.username as submitter')
+            ->leftJoin(['l2'=>'project_process'],
+                'l3.lvl=3 and l2.lvl=2 and l3.lft>l2.lft and l3.rgt<l2.rgt and l3.root='.$id.' and l2.root='.$id)
+            ->leftJoin(['file'=>'project_attachment'],'file.file_id = l3.id')
+            ->leftJoin(['tasks'=>$tblTasks],'tasks.type_id=l3.id')
+            ->leftJoin('user','user.id=file.user_id')
+            ->where('l2.lft>'.$lft.' and l3.rgt<'.$rgt);
+
+
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+            'pagination' => [
+                'pagesize' => '100',
+            ],
+        ]);
+
+        $mdl = ProjectProcess::find()->where(['root'=>$id,'lvl'=>1])->OrderBy('lft')->all();
+
+        return $this->render('project-manage-view',
+            ['dataProvider'=>$dataProvider,'mdl'=>$mdl,'curMdl'=>$curMdl,'project'=>$model->name]);
+    }
+
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

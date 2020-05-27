@@ -1,0 +1,78 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "boms_materials".
+ *
+ * @property integer $bom_id
+ * @property integer $material_id
+ * @property integer $supplier_priority
+ * @property string $date_entered
+ *
+ * @property Materials $material
+ * @property Boms $bom
+ */
+class BomsMaterials extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'boms_materials';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+           // [['bom_id', 'material_id', 'supplier_priority'], 'required'],
+            [['bom_id', 'material_id', 'supplier_priority'], 'integer'],
+            [['date_entered'], 'safe'],
+            [['material_id'], 'exist', 'skipOnError' => true, 'targetClass' => Materials::className(), 'targetAttribute' => ['material_id' => 'material_id']],
+            [['bom_id'], 'exist', 'skipOnError' => true, 'targetClass' => Boms::className(), 'targetAttribute' => ['bom_id' => 'bom_id']],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'bom_id' => Yii::t('common', 'Bom ID'),
+            'material_id' => Yii::t('common', 'Material ID'),
+            'supplier_priority' => Yii::t('common', 'Supplier Priority'),
+            'date_entered' => Yii::t('common', 'Date Entered'),
+        ];
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getMaterial()
+    {
+        return $this->hasOne(Materials::className(), ['material_id' => 'material_id'])->from(['m1' => Materials::tableName()]);
+    }
+    public function getMaterial2()
+    {
+        return $this->hasOne(Materials::className(), ['material_id' => 'material_id'])->from(['m2' => Materials::tableName()]);
+    }
+    public function getMaterial3()
+    {
+        return $this->hasOne(Materials::className(), ['material_id' => 'material_id'])->from(['m3' => Materials::tableName()]);
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getBom()
+    {
+        return $this->hasOne(Boms::className(), ['bom_id' => 'bom_id']);
+    }
+}

@@ -1,0 +1,228 @@
+<?php
+
+namespace frontend\controllers;
+
+use common\components\CommonFunc;
+use frontend\models\ProjectProcess;
+use frontend\models\Projects;
+use frontend\models\Tasks;
+use frontend\models\Upload;
+use Yii;
+use frontend\models\ProjectAttachment;
+use frontend\models\ProjectAttachmentSearch;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use yii\web\UploadedFile;
+use frontend\models\UserTask;
+
+/**
+ * ProjectAttachmentController implements the CRUD actions for ProjectAttachment model.
+ */
+class ProjectAttachmentController extends Controller
+{
+
+    const PROJECT_FILE_UPLOAD = '项目文件上传';
+
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all ProjectAttachment models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+        $searchModel = new ProjectAttachmentSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**
+     * Displays a single ProjectAttachment model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id,$idUserTask=-1)
+    {
+        $model = ProjectAttachment::findOne(['file_id'=>$id]);
+
+        $mdlUserTask = null;
+        if($idUserTask != -1)
+        {
+            $mdlUserTask = UserTask::find()->leftJoin('tasks','user_task.task_id=tasks.id')
+                ->select('*,user_task.status as userTaskStatus,tasks.status as taskStatus')
+                ->where(['user_task.id'=>$idUserTask])->one();
+        }
+
+
+        return $this->render('view', [
+            'model' => $model,
+            'mdlUserTask'=>$mdlUserTask
+        ]);
+    }
+
+    /**
+     * Creates a new ProjectAttachment model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate($id)
+    {
+        $model = new Upload();
+        $mdlPjtPcs = ProjectProcess::findOne($id);
+        return $this->render('create', [
+            'model' => $model,
+            'mdlPjtPcs'=>$mdlPjtPcs,
+            'id'=>$id,
+        ]);
+
+    }
+
+    /**
+     * 处理上传的文件
+     */
+    public function actionUpload()
+    {
+        $model = new Upload();
+        $uploadFiles = UploadedFile::getInstances($model, 'upload_file');
+        $transaction = Yii::$app->db->beginTransaction();
+        foreach ($uploadFiles as $key=>$file) {
+            //检查上传的文件名字是否包含所需字符
+            $mdlProjectProcess = ProjectProcess::findOne($_GET['id']);
+            if(strpos($file->name,$mdlProjectProcess->name) === false)//说明上传的文件名称不对
+                return json_encode(['error'=>'上传文件名与项目文件名称不符，文件名应包含此目录文件名称，如上传“项目计划”，文件名中应包含“项目计划”。']);
+
+            //////开始上传////////
+            $path = '../uploads/projects/';
+            if (!is_dir($path))
+                mkdir($path);
+            //保存时的随机名
+            $nameRandom = CommonFunc::genRandomString(9) . '.' . $file->extension;
+            while (file_exists('../uploads/projects/' . $nameRandom))//看文件是否存在
+                $nameRandom = CommonFunc::genRandomString(9) . '.' . $file->extension;
+            $path = $path . $nameRandom;
+            //上传文件
+            $mdlAttachment = ProjectAttachment::findOne(['file_id'=>$_GET['id']]);
+            if (!$file->saveAs($path))
+                return json_encode(['error'=>'上传失败']);
+            //保存附件数据库
+            $oldPath = '';
+            if(!empty($mdlAttachment))//如果当前这个已经上传了,然后更新一下数据
+            {
+                if(file_exists($mdlAttachment->path))
+                    $oldPath = $mdlAttachment->path;
+                $mdlAttachment->name = $file->name;
+                $mdlAttachment->path = $path;
+                $mdlAttachment->updated_at = time();
+                $mdlAttachment->user_id = Yii::$app->user->id;
+            }
+            else//否则就新增一条数据
+            {
+                $mdlAttachment = new ProjectAttachment();
+                $mdlAttachment->file_id = $_GET['id'];
+                $mdlAttachment->name = $file->name;
+                $mdlAttachment->path = $path;
+                $curTime = time();
+                $mdlAttachment->created_at = $curTime;
+                $mdlAttachment->updated_at = $curTime;
+                $mdlAttachment->user_id = Yii::$app->user->id;
+            }
+            //说明这个是被退回的，更新一下任务和审批，不用新增了
+            $tasks = Tasks::findOne(['status'=>Tasks::STATUS_REJECTED,'type'=>Tasks::TASK_TYPE_PROJECT_FILE_UPLOAD,'type_id'=>$_GET['id']]);
+            if($tasks)
+            {
+                $tasks->status = Tasks::STATUS_COMMITED;
+                if(!$tasks->save())
+                    return json_encode(['error'=>'更新失败']);
+                UserTask::updateAll(['status'=>UserTask::STATUS_UNAPPROVE],['task_id'=>$tasks->id]);
+            }
+            else
+            {
+                $_POST['taskCommit'] = 1;//是否立即提交
+                $_POST['taskRemark'] = '';//备注
+                if(!(Tasks::generateTask(Tasks::TASK_TYPE_PROJECT_FILE_UPLOAD,$_GET['id'],$this::PROJECT_FILE_UPLOAD)
+                    &&$mdlAttachment->save()))
+                {
+                    return json_encode(['error'=>'失败']);
+                }
+            }
+            if($oldPath != '')//说明有旧的文件，把旧的文件删除 掉
+                unlink($oldPath);
+            $working = Projects::figureWorking($mdlProjectProcess->root);//计算到哪个阶段
+            $mdlProjects = Projects::findOne($mdlProjectProcess->root);
+            $mdlProjects->working = $working;
+            $mdlProjects->save();
+
+            //提交到数据库
+            $transaction->commit();
+            return '{}';
+
+        }
+        $transaction->rollBack();
+        return json_encode(['error'=>'上传失败']);
+    }
+
+    /**
+     * Updates an existing ProjectAttachment model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = new Upload();
+        $mdlPjtPcs = ProjectProcess::findOne($id);
+        return $this->render('update', [
+            'model' => $model,
+            'mdlPjtPcs'=>$mdlPjtPcs,
+            'id'=>$id,
+        ]);
+    }
+
+    /**
+     * Deletes an existing ProjectAttachment model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the ProjectAttachment model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return ProjectAttachment the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = ProjectAttachment::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+}

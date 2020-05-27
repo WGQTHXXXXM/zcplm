@@ -1,0 +1,77 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "boms".
+ *
+ * @property integer $id
+ * @property string $parent_id
+ * @property string $parent_version
+ * @property string $child_id
+ * @property string $child_version
+ * @property integer $status
+ * @property integer $release_time
+ * @property integer $effect_date
+ * @property string $expire_date
+ * @property integer $qty
+ * @property string $ref_no
+ * @property string $2zc_part_number_id
+ * @property string $3zc_part_number_id
+ * @property string $4zc_part_number_id
+ * @property integer $type
+ * @property string $creater_id
+ * @property integer $created_at
+ * @property integer $updated_at
+ */
+class Boms extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'boms';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['parent_id', 'parent_version', 'child_id', 'child_version', 'status', 'release_time', 'effect_date', 'expire_date', 'qty', '2zc_part_number_id', '3zc_part_number_id', '4zc_part_number_id', 'type', 'creater_id', 'created_at', 'updated_at'], 'integer'],
+            [['ref_no'], 'string', 'max' => 255],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'parent_id' => Yii::t('material', '父项编码id'),
+            'parent_version' => Yii::t('material', '父版本'),
+            'child_id' => Yii::t('material', '子项编码id'),
+            'child_version' => Yii::t('material', '子版本'),
+            'status' => Yii::t('material', '状态'),
+            'release_time' => Yii::t('material', '发布时间'),
+            'effect_date' => Yii::t('material', '生效日期'),
+            'expire_date' => Yii::t('material', '失效日期'),
+            'qty' => Yii::t('material', '数量'),
+            'ref_no' => Yii::t('material', '位号'),
+            '2zc_part_number_id' => Yii::t('material', '智车料号（2）id'),
+            '3zc_part_number_id' => Yii::t('material', '智车料号（3）id'),
+            '4zc_part_number_id' => Yii::t('material', '智车料号（4）id'),
+            'type' => Yii::t('material', 'BOM分类'),
+            'creater_id' => Yii::t('material', '创建者id'),
+            'created_at' => Yii::t('material', '创建时间'),
+            'updated_at' => Yii::t('material', '更新时间'),
+        ];
+    }
+
+}

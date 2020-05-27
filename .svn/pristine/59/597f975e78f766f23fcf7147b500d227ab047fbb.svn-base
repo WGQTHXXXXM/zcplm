@@ -1,0 +1,47 @@
+<?php
+/**
+ * Message translations for \frontend.
+ *
+ * It contains the localizable messages extracted from source code.
+ * You may modify this file by translating the extracted messages.
+ *
+ * Each array element represents the translation (value) of a message (key).
+ * If the value is empty, the message is considered as not translated.
+ * Messages that no longer need translation will have their translations
+ * enclosed between a pair of '@@' marks.
+ *
+ * Message string can be used with plural forms format. Check i18n section
+ * of the guide for details.
+ *
+ * NOTE: this file must be saved in UTF-8 encoding.
+ */
+return [
+    'Search' => '搜索',
+    'Serial Number' => '编号',
+    'Draft Bom' => '草稿BOM',
+    'Trial Bom' => '试产BOM',
+    'Mass Bom' => '量产BOM',
+    'Undefined' => '未定义',
+    'Parent Version' => '父版本',
+    'Child Version' => '版本',
+    'Not Release' => '未发布',
+    'Release' => '发布',
+    'Release Time' => '发布时间',
+    'Effect Date' => '生效日期',
+    'Expire Date' => '失效日期',
+    'Type' => 'BOM分类',
+    'Second Manufacturer' => '二供厂家',
+    'Third Manufacturer' => '三供厂家',
+    'Fourth Manufacturer' => '四供厂家',
+    'Qty' => '数量',
+    'Reference No.' => '位号',
+    'Assy Level' => '装配层级',
+    'Status' => '状态',
+    'Creater' => '创建者',
+    'Created At' => '创建时间',
+    'Updated At' => '更新时间',
+    'Forward Query' => '正向查询',
+    'Reverse Query' => '逆向查询',
+    'Compare' => '比较',
+    'Assembly' => '部件',
+];

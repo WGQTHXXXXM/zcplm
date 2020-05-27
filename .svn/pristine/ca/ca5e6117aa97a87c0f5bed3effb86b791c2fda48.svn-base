@@ -1,0 +1,179 @@
+<?php
+
+namespace frontend\controllers;
+
+use Yii;
+use frontend\models\Projects;
+use frontend\models\ProjectsSearch;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use frontend\models\ProjectProcess;
+use frontend\models\ProjectProcessTemplate;
+
+/**
+ * ProjectsController implements the CRUD actions for Projects model.
+ */
+class ProjectsController extends Controller
+{
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    public function actionCollapse()
+    {
+        var_dump($_POST);
+        ProjectProcess::updateAll(['collapsed' => $_POST['collapse']], ['id' => $_POST['file_id']]);
+    }
+
+    /*
+     * 项目管理查看
+     */
+    public function actionProjectManageView($project_id)
+    {
+        $dataMsView = ProjectProcess::find()->select('id,root,lft,rgt,lvl,name,disabled,collapsed')->OrderBy('root,lft')->where("root=$project_id");
+        return $this->render('project-manage-view',['dataMsView'=>$dataMsView,'project_id'=>$project_id,'file_id'=>1]);
+    }
+
+    /*
+     * 项目管理模板
+     */
+    public function actionShowTreeTemplate()
+    {
+        $dataMsView = ProjectProcessTemplate::find()->select('id,root,lft,rgt,lvl,name,disabled,collapsed')->OrderBy('lft');
+        return $this->render('show-tree-template',['dataMsView'=>$dataMsView]);
+    }
+
+    /*
+     * 项目管理修改
+     */
+    public function actionProjectManageModify($id)
+    {
+        $dataMsView = ProjectProcess::find()->select('id,root,lft,rgt,lvl,name,disabled,selected,collapsed')
+            ->OrderBy('root,lft')->where(['root'=>"$id"]);
+        return $this->render('project-manage-modify',['dataMsView'=>$dataMsView]);
+    }
+
+    /**
+     * Lists all Projects models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+        $searchModel = new ProjectsSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**
+     * Displays a single Projects model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        return $this->render('view', [
+            'model' => $this->findModel($id),
+        ]);
+    }
+
+    /**
+     * Creates a new Projects model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate()
+    {
+        $model = new Projects();
+        if ($model->load(Yii::$app->request->post()))//是否是提交
+        {
+            //获得项目的id和名字
+            $model->save();
+            $id = $model->attributes['project_id'];
+            $name = $model->attributes['name'];
+            //获得里程碑的模板的数据
+            $dataTreeTpl = ProjectProcessTemplate::find()->select('id,root,lft,rgt,lvl,name')->OrderBy('root,lft')->all();
+            //生成SQL语句
+            $strSQL = "INSERT INTO project_process(root,lft,rgt,lvl,name) VALUES";
+            $dataTreeTpl[0]->name = $name;
+            foreach($dataTreeTpl as $key=>$val)
+                $strSQL .= "($id,$val->lft,$val->rgt,$val->lvl,'$val->name'),";
+            Yii::$app->db->createCommand(trim($strSQL,','))->execute();
+            return $this->redirect(['project-manage-modify', 'id' => $id]);
+        }
+        else
+        {
+            return $this->render('create', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Updates an existing Projects model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            $project_process = ProjectProcess::findOne(['root' => $id, 'lvl' => 0]);
+            if ($project_process !== null) {
+                $project_process->name = $model->name;
+                $project_process->save();
+            }
+            return $this->redirect(['view', 'id' => $model->project_id]);
+        } else {
+            return $this->render('update', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Deletes an existing Projects model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the Projects model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return Projects the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = Projects::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+}

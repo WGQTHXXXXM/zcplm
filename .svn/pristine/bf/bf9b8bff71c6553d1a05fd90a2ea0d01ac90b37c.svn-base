@@ -1,0 +1,80 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "ecn_part_user".
+ *
+ * @property integer $id
+ * @property integer $ecn_change_id
+ * @property integer $bom_id
+ */
+class EcnPartUser extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'ecn_part_user';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['ecn_change_id', 'bom_id'], 'required'],
+            [['ecn_change_id', 'bom_id'], 'integer'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'ecn_change_id' => Yii::t('material', '变更集合的ID'),
+            'bom_id' => Yii::t('material', '使用者bom的id'),
+        ];
+    }
+
+    /**
+     * 关联的bom表
+     */
+    public function getBomecn()
+    {
+        return $this->hasOne(Bomecn::className(),['id'=>'bom_id']);
+    }
+
+
+    /**
+     * @param $key:保存当前使用者数组的索引
+     * @param $idChangeSet：当前变更集合的id号
+     * @return true
+     */
+    public static function savePartUser($key,$idChangeSet)
+    {
+        $data = $_POST['Ecn']['userParent'];
+        //保存当前的使用者
+        foreach ($data[$key] as $k=>$v)
+        {
+            $mdlPartUser = new self();
+            $mdlPartUser->ecn_change_id = $idChangeSet;
+            $mdlPartUser->bom_id = $k;
+            if(!$mdlPartUser->save())
+                return false;
+            if($_POST['Ecn']['change_type'][$key] == EcnChangeSet::CT_ALTGROUP)
+            {
+                if(!EcnAltgroup::saveAltgroup($k,$key,$mdlPartUser->id))
+                    return false;
+            }
+        }
+        return true;
+    }
+}

@@ -1,0 +1,126 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "boms".
+ *
+ * @property integer $bom_id
+ * @property integer $module_id
+ * @property integer $assy_level
+ * @property string $purchase_level
+ * @property double $qty
+ * @property string $ref_no
+ * @property string $remark
+ * @property string $date_entered
+ *
+ * @property Modules $module
+ * @property BomsMaterials[] $bomsMaterials
+ * @property Materials[] $materials
+ */
+class Boms extends \yii\db\ActiveRecord
+{
+    public $project_name;
+    public $module_name;
+    public $milestone;
+    public $part_no;
+    public $second_source_part_no;
+    public $third_source_part_no;
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'boms';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['module_id', 'assy_level'], 'required'],
+            [['module_id', 'assy_level'], 'integer'],
+            [['qty'], 'number'],
+            [['date_entered'], 'safe'],
+            [['purchase_level'], 'string', 'max' => 1],
+            [['ref_no'], 'string', 'max' => 100],
+            [['remark'], 'string', 'max' => 50],
+            [['module_id'], 'exist', 'skipOnError' => true, 'targetClass' => Modules::className(), 'targetAttribute' => ['module_id' => 'module_id']],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'bom_id' => Yii::t('common', 'Bom ID'),
+            'module_id' => Yii::t('common', 'Module'),
+            'assy_level' => Yii::t('common', 'Assy Level'),
+            'purchase_level' => Yii::t('common', 'Purchase Level'),
+            'qty' => Yii::t('common', 'Qty'),
+            'ref_no' => Yii::t('common', 'Ref No'),
+            'remark' => Yii::t('common', 'Remark'),
+            'date_entered' => Yii::t('common', 'Date Entered'),
+
+            'part_name' => Yii::t('common', 'Part Name'),
+            'project_name' => Yii::t('common', 'Project'),
+            'milestone' => Yii::t('common', 'Milestone'),
+            'module_name' => Yii::t('common', 'Module'),
+            'part_no' => Yii::t('common', 'Part No.'),
+            'second_source_part_no' => Yii::t('common', '2nd Source P/N'),
+            'third_source_part_no' => Yii::t('common', '3rd Source P/N'),
+            'assy_level_toggle' => Yii::t('common', 'Assy Level'),
+            'purchase_level_toggle' => Yii::t('common', 'Purchase Level'),
+            'part_no_toggle' => Yii::t('common', 'Part No.'),
+            'part_name_toggle' => Yii::t('common', 'Part Name'),
+            'description_toggle' => Yii::t('common', 'Description'),
+            'pcb_footprint_toggle' => Yii::t('common', 'Pcb Footprint'),
+            'qty_toggle' => Yii::t('common', 'Qty'),
+            'ref_no_toggle' => Yii::t('common', 'Ref No'),
+            'supplier_name_toggle' => Yii::t('common', 'Supplier Name'),
+            'second_source_part_no_toggle' => Yii::t('common', '2nd Source P/N'),
+            'second_source_supplier_name_toggle' => Yii::t('common', '2nd Source Supplier'),
+            'third_source_part_no_toggle' => Yii::t('common', '3rd Source P/N'),
+            'third_source_supplier_name_toggle' => Yii::t('common', '3rd Source Supplier'),
+            'remark_toggle' => Yii::t('common', 'Remark'),
+        ];
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getModule()
+    {
+        return $this->hasOne(Modules::className(), ['module_id' => 'module_id']);
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getBomsMaterials()
+    {
+        return $this->hasOne(BomsMaterials::className(), ['bom_id' => 'bom_id'])->onCondition(['b_m1.supplier_priority' => 1])->from(['b_m1' => BomsMaterials::tableName()]);
+    }
+    public function getBomsMaterials2()
+    {
+        return $this->hasOne(BomsMaterials::className(), ['bom_id' => 'bom_id'])->onCondition(['b_m2.supplier_priority' => 2])->from(['b_m2' => BomsMaterials::tableName()]);
+    }
+    public function getBomsMaterials3()
+    {
+        return $this->hasOne(BomsMaterials::className(), ['bom_id' => 'bom_id'])->onCondition(['b_m3.supplier_priority' => 3])->from(['b_m3' => BomsMaterials::tableName()]);
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getMaterials()
+    {
+        return $this->hasMany(Materials::className(), ['material_id' => 'material_id'])->viaTable('boms_materials', ['bom_id' => 'bom_id']);
+    }
+}

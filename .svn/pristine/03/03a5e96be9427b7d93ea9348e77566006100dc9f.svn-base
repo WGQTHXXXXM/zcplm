@@ -1,0 +1,102 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "ecr".
+ *
+ * @property integer $id
+ * @property string $serial_number
+ * @property string $reason
+ * @property string $detail
+ * @property string $module
+ * @property integer $created_at
+ * @property integer $updated_at
+ */
+class Ecr extends EcrAndEcn
+{
+    //审批状态
+    //const STATUS_ECR = [0=>'待提交',1=>'审核中',2=>'被退回',3=>'已通过'];
+
+    //上传的文件
+    public $uploadFile;
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'ecr';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['serial_number', 'reason', 'detail', 'module','project_process', 'created_at', 'updated_at',
+                'approver1','approver2','approver3','approver4','approver5'], 'required'],
+            [['reason', 'detail'], 'string'],
+            [['created_at', 'updated_at'], 'integer'],
+            [['serial_number'], 'string', 'max' => 20],
+            [['module'], 'string', 'max' => 255],
+            [['project_process'], 'string', 'max' => 30],
+            [['uploadFile'], 'file','maxFiles' => 5],
+            [['uploadFile'], 'safe']
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        $arr = parent::attributeLabels();
+        return array_merge($arr,[
+            'id' => Yii::t('material', 'ID'),
+            'serial_number' => Yii::t('material', '编号'),
+            'reason' => Yii::t('material', '变更原因'),
+            'detail' => Yii::t('material', '变更内容'),
+            'module' => Yii::t('material', '项目机种名称'),
+            'project_process' => Yii::t('material', '项目阶段'),
+            'created_at' => Yii::t('material', '创建时间'),
+            'updated_at' => Yii::t('material', '更新时间'),
+
+            'user'=>'创建者',
+            'status'=>'审批情况'
+        ]);
+    }
+
+    //以下变量为了联合审批人表用,type=2的都是ECR的;
+    public $type = Tasks::TASK_TYPE_ECR;
+
+    //关联附件表
+    public function getAttachments()
+    {
+        return $this->hasMany(EcrAttachment::className(),['ecr_id'=>'id']);
+    }
+
+
+    //////////////////////////////////////////////////////////////////////
+    /**
+     * 在表格里显示变更原因
+     */
+    public function getCutReason()
+    {
+        return $this->reason? (mb_strlen($this->reason)<=10? $this->reason : mb_substr($this->reason,0,10).'...') : '';
+    }
+
+    /**
+     * 在表格里显示变更内容
+     */
+    public function getCutDetail()
+    {
+        return $this->detail? (mb_strlen($this->detail)<=10? $this->detail : mb_substr($this->detail,0,10).'...') : '';
+    }
+
+
+
+}

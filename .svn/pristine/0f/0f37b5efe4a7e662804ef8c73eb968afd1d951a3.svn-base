@@ -1,0 +1,117 @@
+<?php
+
+namespace frontend\models;
+
+use common\models\User;
+use Yii;
+use yii\base\Model;
+use yii\data\ActiveDataProvider;
+use frontend\models\UserTask;
+
+/**
+ * UserTaskSearch represents the model behind the search form about `frontend\models\UserTask`.
+ */
+class UserTaskSearch extends UserTask
+{
+
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['id', 'status'], 'integer'],
+            [['user_id', 'userTaskUser','taskStatus','userTaskStatus'], 'safe'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function scenarios()
+    {
+        // bypass scenarios() implementation in the parent class
+        return Model::scenarios();
+    }
+
+    /**
+     * Creates data provider instance with search query applied
+     *
+     * @param array $params
+     *
+     * @return ActiveDataProvider
+     */
+    public function search($params)
+    {
+        $query = UserTask::find()->leftJoin('tasks','user_task.task_id=tasks.id')->
+        select('*,user_task.remark as userTaskRemark,user_task.status as userTaskStatus,
+            user_task.id as id,tasks.status as taskStatus,tasks.date as dateApprove,
+            tasks.user_id as taskUser,user_task.user_id as userTaskUser');
+
+        // add conditions that should always apply here
+
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+            'pagination' => [
+                'pagesize' => '10',
+            ],
+            'sort' => ['defaultOrder' => ['userTaskStatus' => SORT_ASC,'dateApprove' => SORT_DESC]]
+        ]);
+
+        $dataProvider->sort->attributes['user_id'] = [
+            'asc' => ['user_task.user_id' => SORT_ASC],
+            'desc' => ['user_task.user_id' => SORT_DESC],
+        ];
+        $dataProvider->sort->attributes['taskUser'] = [
+            'asc' => ['tasks.user_id' => SORT_ASC],
+            'desc' => ['tasks.user_id' => SORT_DESC],
+        ];
+
+        $dataProvider->sort->attributes['userTaskStatus'] = [
+            'asc' => ['user_task.status' => SORT_ASC],
+            'desc' => ['user_task.status' => SORT_DESC],
+        ];
+        $dataProvider->sort->attributes['taskStatus'] = [
+            'asc' => ['tasks.status' => SORT_ASC],
+            'desc' => ['tasks.status' => SORT_DESC],
+        ];
+        $dataProvider->sort->attributes['dateApprove'] = [
+            'asc' => ['tasks.date' => SORT_ASC],
+            'desc' => ['tasks.date' => SORT_DESC],
+        ];
+
+        $this->load($params);
+        if (!$this->validate()) {
+            // uncomment the following line if you do not want to return any records when validation fails
+            // $query->where('0=1');
+            return $dataProvider;
+        }
+
+        //用户的搜索
+        $user = '';
+        if(!empty($this->userTaskUser))
+        {
+            $user = User::findOne(['username'=>$this->userTaskUser]);
+            if(empty($user))
+                $user = -1;
+            else
+                $user = $user->id;
+        }
+
+
+        // grid filtering conditions
+        $query->andFilterWhere([
+            'user_task.' => $this->id,
+            'user_task.task_id' => $this->task_id,
+            'user_task.user_id' => $user,
+            'user_task.status' => $this->userTaskStatus,
+            'user_task.updated_at' => $this->updated_at,
+        ]);
+
+
+        $query->andFilterWhere(['like', 'tasks.remark', $this->remark]);
+
+        return $dataProvider;
+    }
+}

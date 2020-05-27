@@ -1,0 +1,396 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use yii\behaviors\TimestampBehavior;
+use mdm\admin\models\User;
+
+/**
+ * This is the model class for table "boms".
+ *
+ * @property integer $id
+ * @property string $parent_id
+ * @property string $parent_version
+ * @property string $child_id
+ * @property string $child_version
+ * @property integer $status
+ * @property integer $release_time
+ * @property integer $effect_date
+ * @property string $expire_date
+ * @property integer $qty
+ * @property string $ref_no
+ * @property string $zc_part_number2_id
+ * @property string $zc_part_number3_id
+ * @property string $zc_part_number4_id
+ * @property integer $type
+ * @property string $creater_id
+ * @property integer $created_at
+ * @property integer $updated_at
+ */
+class Boms extends \yii\db\ActiveRecord
+{
+    public $zc_part_number;
+    const EXPIRE_DATE_MAX = 253402185600; //Unix时间戳(Unix timestamp)
+    const EXPIRE_DATE_TEMPORARY = 253402099200; //Unix时间戳(Unix timestamp)
+
+    const STATUS_UNRELEASE = 0; //未发布
+    const STATUS_RELEASE = 1; //发布
+
+    const BOM_TYPE_DRAFT = 0; //草稿BOM
+    const BOM_TYPE_TRIAL = 1; //试产BOM
+    const BOM_TYPE_MASS = 2; //量产BOM
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'boms';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['parent_id', 'parent_version', 'child_id', 'child_version', 'status', 'release_time', 'effect_date', 'expire_date', 'qty', 'zc_part_number2_id', 'zc_part_number3_id', 'zc_part_number4_id', 'type', 'creater_id', 'created_at', 'updated_at'], 'integer'],
+            [['ref_no'], 'string', 'max' => 255],
+         //   [['zc_part_number'], 'safe'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            TimestampBehavior::className(),
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('bom', 'ID'),
+            'parent_id' => Yii::t('bom', 'Parent ID'),
+            'parent_version' => Yii::t('bom', 'Parent Version'),
+            'child_id' => Yii::t('bom', 'Child ID'),
+            'child_version' => Yii::t('bom', 'Child Version'),
+            'status' => Yii::t('bom', 'Status'),
+            'release_time' => Yii::t('bom', 'Release Time'),
+            'effect_date' => Yii::t('bom', 'Effect Date'),
+            'expire_date' => Yii::t('bom', 'Expire Date'),
+            'qty' => Yii::t('bom', 'Qty'),
+            'ref_no' => Yii::t('bom', 'Reference No.'),
+            'zc_part_number2_id' => Yii::t('material', 'Second Zhiche Part Number ID'),
+            'zc_part_number3_id' => Yii::t('material', 'third Zhiche Part Number ID'),
+            'zc_part_number4_id' => Yii::t('material', 'fourth Zhiche Part Number ID'),
+            'type' => Yii::t('bom', 'Type'),
+            'creater_id' => Yii::t('bom', 'Creater ID'),
+            'created_at' => Yii::t('bom', 'Created At'),
+            'updated_at' => Yii::t('bom', 'Updated At'),
+            'serial_number' => Yii::t('bom', 'Serial Number'),
+            'name' => Yii::t('material', 'Description'),
+            'creater' => Yii::t('bom', 'Creater'),
+            'zc_part_number' => Yii::t('material', 'Zhiche Part Number'),
+        ];
+    }
+
+    public function getMaterial()
+    {
+        return $this->hasOne(Materials::className(), ['material_id' => 'parent_id']);
+    }
+
+    public function getMaterial1()
+    {
+        return $this->hasOne(Materials::className(), ['material_id' => 'child_id']);
+    }
+    
+    public function getUser()
+    {
+        return $this->hasOne(User::className(), ['id' => 'creater_id']);
+    }
+
+    public function getBom2()
+    {
+        return $this->hasOne(Boms::className(), ['parent_id' => 'child_id']);
+    }
+
+    //正向查询
+    public static function forwardQuery($id, $multiLevel = true, $returnData = true)
+    {
+        //分层查找法
+        //1.创建临时表tmp_boms1和临时表tmp_boms2
+        $sql = "DROP TABLE IF EXISTS `tmp_boms1`;
+                CREATE TEMPORARY TABLE `tmp_boms1` ( 
+                  `rownum` int(11) NOT NULL AUTO_INCREMENT COMMENT '当前行号', 
+                  `id` int(11) NOT NULL, 
+                  `level` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '当前层次', 
+                  `parent_id` int(11) unsigned DEFAULT NULL COMMENT '父项编码id', 
+                  `parent_version` int(10) unsigned DEFAULT NULL COMMENT '父版本', 
+                  `child_id` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '子项编码id', 
+                  `child_version` int(10) unsigned DEFAULT NULL COMMENT '子版本', 
+                  `status` tinyint(3) NOT NULL DEFAULT '0' COMMENT '状态', 
+                  `release_time` int(11) DEFAULT NULL COMMENT '发布时间', 
+                  `effect_date` int(11) DEFAULT NULL COMMENT '生效日期', 
+                  `expire_date` bigint(11) DEFAULT NULL COMMENT '失效日期', 
+                  `qty` int(11) DEFAULT NULL COMMENT '数量', 
+                  `ref_no` varchar(255) DEFAULT NULL COMMENT '位号', 
+                  `zc_part_number2_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（2）id', 
+                  `zc_part_number3_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（3）id', 
+                  `zc_part_number4_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（4）id', 
+                  `type` tinyint(3) unsigned NOT NULL DEFAULT '0' COMMENT 'BOM分类', 
+                  `creater_id` int(11) unsigned DEFAULT NULL COMMENT '创建者id', 
+                  `created_at` int(11) DEFAULT NULL COMMENT '创建时间', 
+                  `updated_at` int(11) DEFAULT NULL COMMENT '更新时间', 
+                  PRIMARY KEY (`rownum`) 
+                ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
+                
+                DROP TABLE IF EXISTS `tmp_boms2`;
+                CREATE TEMPORARY TABLE `tmp_boms2` ( 
+                  `id` int(11) NOT NULL AUTO_INCREMENT, 
+                  `level` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '当前层次', 
+                  `parent_id` int(11) unsigned DEFAULT NULL COMMENT '父项编码id', 
+                  `parent_version` int(10) unsigned DEFAULT NULL COMMENT '父版本', 
+                  `child_id` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '子项编码id', 
+                  `child_version` int(10) unsigned DEFAULT NULL COMMENT '子版本', 
+                  `status` tinyint(3) NOT NULL DEFAULT '0' COMMENT '状态', 
+                  `release_time` int(11) DEFAULT NULL COMMENT '发布时间', 
+                  `effect_date` int(11) DEFAULT NULL COMMENT '生效日期', 
+                  `expire_date` bigint(11) DEFAULT NULL COMMENT '失效日期', 
+                  `qty` int(11) DEFAULT NULL COMMENT '数量', 
+                  `ref_no` varchar(255) DEFAULT NULL COMMENT '位号', 
+                  `zc_part_number2_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（2）id', 
+                  `zc_part_number3_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（3）id', 
+                  `zc_part_number4_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（4）id', 
+                  `type` tinyint(3) unsigned NOT NULL DEFAULT '0' COMMENT 'BOM分类', 
+                  `creater_id` int(11) unsigned DEFAULT NULL COMMENT '创建者id', 
+                  `created_at` int(11) DEFAULT NULL COMMENT '创建时间', 
+                  `updated_at` int(11) DEFAULT NULL COMMENT '更新时间', 
+                  PRIMARY KEY (`id`) 
+                ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8";
+        Yii::$app->db->createCommand($sql)->execute();
+        //2.将要查找的物料放到表tmp_boms1中
+        $level = 0;
+        $sql = "INSERT INTO tmp_boms1 (level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,
+                    zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at) 
+                    SELECT {$level},id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,
+                    zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at 
+                    FROM boms WHERE id={$id}";
+        Yii::$app->db->createCommand($sql)->execute();
+        $RowCount1 = 0;
+        $RowCount2 = Yii::$app->db->createCommand('SELECT COUNT(*) FROM tmp_boms1')->queryScalar(); //表tmp_boms1的总行数
+        while ($RowCount2 > $RowCount1) {
+            $level = $level + 1;
+            if ($level > 1 && !$multiLevel) break; //如果只查找最近一层子级，当$level>1时退出查找
+            //3.将表tmp_boms1中所有行号大于RowCount1物料的下一层子项放到表tmp_boms2中
+            for ($i=$RowCount1+1; $i<=$RowCount2; $i++) {
+                /*   $sql = "SELECT * FROM tmp_boms1";
+                   $data = Yii::$app->db->createCommand($sql)->queryAll();*/
+                $sql = "SELECT * FROM tmp_boms1 WHERE rownum={$i}";
+                $row = Yii::$app->db->createCommand($sql)->queryOne();
+
+                $sql = "INSERT INTO tmp_boms2 (level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at) 
+                    SELECT {$level},id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at 
+                    FROM boms WHERE parent_id={$row['child_id']} AND expire_date>={$row['expire_date']} AND parent_version<={$row['child_version']}";
+                Yii::$app->db->createCommand($sql)->execute();
+
+                /*   $sql = "SELECT * FROM tmp_boms2";
+                   $data = Yii::$app->db->createCommand($sql)->queryAll();*/
+            }
+            //4.从表tmp_boms2中将所有物料移到表tmp_boms1末尾
+            $sql = "INSERT INTO tmp_boms1 (level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at)
+                    SELECT level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at
+                    FROM tmp_boms2 ORDER BY id ASC";
+            Yii::$app->db->createCommand($sql)->execute();
+            //5.清空临时表tmp_boms2
+            Yii::$app->db->createCommand('DELETE FROM tmp_boms2')->execute();
+
+            $RowCount1 = $RowCount2;
+            $RowCount2 = Yii::$app->db->createCommand('SELECT COUNT(*) FROM tmp_boms1')->queryScalar(); //表tmp_boms1的总行数
+        }
+
+        //6.表tmp_boms1中存在的是原物料和查找结果
+        if ($returnData) {
+            $sql = "SELECT b.id, b.level, b.parent_id, b.parent_version, b.child_id, b.child_version, b.status, b.release_time, b.effect_date, b.expire_date, b.qty, b.ref_no, 
+                 m1.zc_part_number, m1.purchase_level, m1.part_name, m1.description, m1.unit, m1.pcb_footprint, m1.mfr_part_number, mer1.name AS manufacturer, 
+                 m2.zc_part_number AS zc_part_number2, m2.mfr_part_number AS mfr_part_number2, mer2.name AS manufacturer2, 
+                 m3.zc_part_number AS zc_part_number3, m3.mfr_part_number AS mfr_part_number3, mer3.name AS manufacturer3, 
+                 m4.zc_part_number AS zc_part_number4, m4.mfr_part_number AS mfr_part_number4, mer4.name AS manufacturer4 
+                 FROM tmp_boms1 AS b 
+                 LEFT JOIN materials AS m1 ON b.child_id=m1.material_id LEFT JOIN material_encode_rule AS mer1 ON mer1.id=m1.manufacturer 
+                 LEFT JOIN materials AS m2 ON b.zc_part_number2_id=m2.material_id LEFT JOIN material_encode_rule AS mer2 ON mer2.id=m2.manufacturer 
+                 LEFT JOIN materials AS m3 ON b.zc_part_number3_id=m3.material_id LEFT JOIN material_encode_rule AS mer3 ON mer3.id=m3.manufacturer 
+                 LEFT JOIN materials AS m4 ON b.zc_part_number4_id=m4.material_id LEFT JOIN material_encode_rule AS mer4 ON mer4.id=m4.manufacturer";
+            $data = Yii::$app->db->createCommand($sql)->queryAll();
+
+            return $data;
+        }
+    }
+
+    //遍历多维数组，生成树型结构数组
+    public static function generateTreeArray($arr, $parent = null)
+    {
+        $pages = Array();
+        foreach ($arr as $page)
+        {
+            if ($page['parent_id'] == $parent)
+            {
+                $page['children'] = isset($page['children']) ? $page['children'] : self::generateTreeArray($arr, $page['child_id']);
+                $pages[] = $page;
+            }
+        }
+        return $pages;
+    }
+
+    //遍历树型结构数组，生成列表结构数组
+    public static function generateListArray($tree, $children = 'children')
+    {
+        $listArr = array();
+        foreach ($tree as $w) {
+            if (isset($w[$children])) {
+                $t = $w[$children];
+                unset($w[$children]);
+                $listArr[] = $w;
+                if (is_array($t)) $listArr = array_merge($listArr, self::generateListArray($t, $children));
+            } else {
+                $listArr[] = $w;
+            }
+        }
+        return $listArr;
+    }
+
+    //逆向查询
+    public static function reverseQuery($id, $multiLevel = true, $returnData = true)
+    {
+        //分层查找法
+        //1.创建临时表tmp_boms1和临时表tmp_boms2
+        $sql = "DROP TABLE IF EXISTS `tmp_boms1`;
+                CREATE TEMPORARY TABLE `tmp_boms1` ( 
+                  `rownum` int(11) NOT NULL AUTO_INCREMENT COMMENT '当前行号', 
+                  `id` int(11) NOT NULL, 
+                  `level` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '当前层次', 
+                  `parent_id` int(11) unsigned DEFAULT NULL COMMENT '父项编码id', 
+                  `parent_version` int(10) unsigned DEFAULT NULL COMMENT '父版本', 
+                  `child_id` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '子项编码id', 
+                  `child_version` int(10) unsigned DEFAULT NULL COMMENT '子版本', 
+                  `status` tinyint(3) NOT NULL DEFAULT '0' COMMENT '状态', 
+                  `release_time` int(11) DEFAULT NULL COMMENT '发布时间', 
+                  `effect_date` int(11) DEFAULT NULL COMMENT '生效日期', 
+                  `expire_date` bigint(11) DEFAULT NULL COMMENT '失效日期', 
+                  `qty` int(11) DEFAULT NULL COMMENT '数量', 
+                  `ref_no` varchar(255) DEFAULT NULL COMMENT '位号', 
+                  `zc_part_number2_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（2）id', 
+                  `zc_part_number3_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（3）id', 
+                  `zc_part_number4_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（4）id', 
+                  `type` tinyint(3) unsigned NOT NULL DEFAULT '0' COMMENT 'BOM分类', 
+                  `creater_id` int(11) unsigned DEFAULT NULL COMMENT '创建者id', 
+                  `created_at` int(11) DEFAULT NULL COMMENT '创建时间', 
+                  `updated_at` int(11) DEFAULT NULL COMMENT '更新时间', 
+                  PRIMARY KEY (`rownum`) 
+                ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
+                
+                DROP TABLE IF EXISTS `tmp_boms2`;
+                CREATE TEMPORARY TABLE `tmp_boms2` ( 
+                  `rownum` int(11) NOT NULL AUTO_INCREMENT COMMENT '当前行号', 
+                  `id` int(11) NOT NULL, 
+                  `level` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '当前层次', 
+                  `parent_id` int(11) unsigned DEFAULT NULL COMMENT '父项编码id', 
+                  `parent_version` int(10) unsigned DEFAULT NULL COMMENT '父版本', 
+                  `child_id` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '子项编码id', 
+                  `child_version` int(10) unsigned DEFAULT NULL COMMENT '子版本', 
+                  `status` tinyint(3) NOT NULL DEFAULT '0' COMMENT '状态', 
+                  `release_time` int(11) DEFAULT NULL COMMENT '发布时间', 
+                  `effect_date` int(11) DEFAULT NULL COMMENT '生效日期', 
+                  `expire_date` bigint(11) DEFAULT NULL COMMENT '失效日期', 
+                  `qty` int(11) DEFAULT NULL COMMENT '数量', 
+                  `ref_no` varchar(255) DEFAULT NULL COMMENT '位号', 
+                  `zc_part_number2_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（2）id', 
+                  `zc_part_number3_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（3）id', 
+                  `zc_part_number4_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（4）id', 
+                  `type` tinyint(3) unsigned NOT NULL DEFAULT '0' COMMENT 'BOM分类', 
+                  `creater_id` int(11) unsigned DEFAULT NULL COMMENT '创建者id', 
+                  `created_at` int(11) DEFAULT NULL COMMENT '创建时间', 
+                  `updated_at` int(11) DEFAULT NULL COMMENT '更新时间', 
+                  PRIMARY KEY (`rownum`) 
+                ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8";
+        Yii::$app->db->createCommand($sql)->execute();
+
+        //2.将要查找的物料放到表tmp_boms1中
+        $sql = "SELECT * FROM boms WHERE id={$id}";
+        $row = Yii::$app->db->createCommand($sql)->queryOne();
+        $level = 0;
+        $expire_date = Boms::EXPIRE_DATE_MAX;
+        $sql = "INSERT INTO tmp_boms1 (level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at) 
+                    SELECT {$level},id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at 
+                    FROM boms WHERE child_id={$row['child_id']} AND expire_date>={$expire_date}";
+        Yii::$app->db->createCommand($sql)->execute();
+        $RowCount1 = 0;
+        $RowCount2 = Yii::$app->db->createCommand('SELECT COUNT(*) FROM tmp_boms1')->queryScalar(); //表tmp_boms1的总行数
+        while ($RowCount2 > $RowCount1) {
+            $level = $level + 1;
+            if ($level > 1 && !$multiLevel) break; //如果只查找直接上级，当$level>1时退出查找
+            //3.将表tmp_boms1中所有行号大于RowCount1物料的直接上级放到表tmp_boms2中
+            for ($i=$RowCount1+1; $i<=$RowCount2; $i++) {
+                $sql = "SELECT * FROM tmp_boms1 WHERE rownum={$i}";
+                $row = Yii::$app->db->createCommand($sql)->queryOne();
+
+                if ($row['parent_id']) {
+                    $sql = "INSERT INTO tmp_boms2 (level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at) 
+                    SELECT {$level},id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at 
+                    FROM boms WHERE child_id={$row['parent_id']} AND expire_date>={$expire_date}";
+                    Yii::$app->db->createCommand($sql)->execute();
+                }
+            }
+            //4.从表tmp_boms2中将所有物料移到表tmp_boms1末尾
+            if ($multiLevel) {//全阶逆展
+                $parent_id_version = "parent_id,parent_version";
+            } else {//单阶逆展，需要将直接上级的parent_id置为null，以便后续处理时不会导致有效信息丢失
+                $parent_id_version = "null,null";
+            }
+            $sql = "INSERT INTO tmp_boms1 (level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at)
+                    SELECT level,id,". $parent_id_version .",child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at
+                    FROM tmp_boms2 ORDER BY id ASC";
+            Yii::$app->db->createCommand($sql)->execute();
+            //5.清空临时表tmp_boms2
+            Yii::$app->db->createCommand('DELETE FROM tmp_boms2')->execute();
+
+            $RowCount1 = $RowCount2;
+            $RowCount2 = Yii::$app->db->createCommand('SELECT COUNT(*) FROM tmp_boms1')->queryScalar(); //表tmp_boms1的总行数
+        }
+
+        //6.表tmp_boms1中存在的是原物料和查找结果
+        if ($returnData) {
+            $sql = "SELECT b.id, b.level, b.parent_id, b.parent_version, b.child_id, b.child_version, b.status, b.release_time, b.effect_date, b.expire_date, b.qty, b.ref_no, 
+                 m1.zc_part_number, m1.purchase_level, m1.part_name, m1.description, m1.unit, m1.pcb_footprint, m1.mfr_part_number, mer1.name AS manufacturer, 
+                 m2.zc_part_number AS zc_part_number2, m2.mfr_part_number AS mfr_part_number2, mer2.name AS manufacturer2, 
+                 m3.zc_part_number AS zc_part_number3, m3.mfr_part_number AS mfr_part_number3, mer3.name AS manufacturer3, 
+                 m4.zc_part_number AS zc_part_number4, m4.mfr_part_number AS mfr_part_number4, mer4.name AS manufacturer4 
+                 FROM tmp_boms1 AS b 
+                 LEFT JOIN materials AS m1 ON b.child_id=m1.material_id LEFT JOIN material_encode_rule AS mer1 ON mer1.id=m1.manufacturer 
+                 LEFT JOIN materials AS m2 ON b.zc_part_number2_id=m2.material_id LEFT JOIN material_encode_rule AS mer2 ON mer2.id=m2.manufacturer 
+                 LEFT JOIN materials AS m3 ON b.zc_part_number3_id=m3.material_id LEFT JOIN material_encode_rule AS mer3 ON mer3.id=m3.manufacturer 
+                 LEFT JOIN materials AS m4 ON b.zc_part_number4_id=m4.material_id LEFT JOIN material_encode_rule AS mer4 ON mer4.id=m4.manufacturer
+                 ORDER BY level DESC";
+            $data = Yii::$app->db->createCommand($sql)->queryAll();
+
+            return $data;
+        }
+    }
+}

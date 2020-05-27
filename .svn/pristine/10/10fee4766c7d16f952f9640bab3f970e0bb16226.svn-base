@@ -1,0 +1,213 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use backend\models\User;
+use yii\behaviors\TimestampBehavior;
+use common\components\CommonFunc;
+use yii\bootstrap\Html;
+
+/**
+ * This is the model class for table "user_task".
+ *
+ * @property integer $id
+ * @property integer $task_id
+ * @property integer $user_id
+ * @property integer $status
+ * @property string $remark
+ * @property integer $updated_at
+ * @property integer $created_at
+ * @property integer $approve_able
+ */
+class UserTask extends \yii\db\ActiveRecord
+{
+    /*********审批状态********/
+    const STATUS_APPROVE = [0=>'待审批',1=>'审批拒绝',2=>'审批同意',];
+    const STATUS_UNAPPROVE = 0;
+    const STATUS_REJECTED = 1;
+    const STATUS_APPROVED = 2;
+
+    //任务的备注
+    public $userTaskRemark;//审批的备注
+    public $userTaskStatus;//审批结果：过还是没过
+    public $taskStatus;//任务的状态：来判断‘待审批’是否可审，如果这个是被退回的，待审批的就不用审
+    public $recommend_purchase;//采购推荐级别
+    public $taskUser;
+    public $userTaskUser;
+
+
+    //提交的时间
+    public $dateApprove;
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            TimestampBehavior::className(),
+        ];
+    }
+
+
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'user_task';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['task_id', 'user_id', 'status'], 'required'],
+            [['task_id', 'user_id', 'status', 'updated_at','created_at'], 'integer'],
+            [['remark'], 'string', 'max' => 255],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'task_id' => Yii::t('material', '任务ID'),
+            'user_id' => Yii::t('material', '用户ID'),
+            'status' => Yii::t('material', '审批或提交的状态'),
+            'remark' => Yii::t('material', '备注'),
+            'updated_at' => Yii::t('material', '更新时间'),
+            'created_at' => Yii::t('material', '更新时间'),
+        ];
+    }
+
+    //关联任务表
+    public function getTasks()
+    {
+        return $this->hasOne(Tasks::className(),['id'=>'task_id']);
+    }
+
+    //关联用户表
+    public function getUser()
+    {
+        return $this->hasOne(User::className(),['id'=>'user_id']);
+    }
+
+    public function getUserTaskUsername()
+    {
+        return $this->hasOne(User::className(),['id'=>'userTaskUser']);
+    }
+
+    /**
+     * 根据个人任务如果更新时是立即提交，提交类型（被退回还是待提交），来更改或新增审批数据
+     */
+    public static function saveTaskUpdate($taskType,$taskTypeId)
+    {
+        $arrApprovers = Tasks::getApprovers($taskType,$taskTypeId);
+
+
+        $task = Tasks::findOne(['type'=>$taskType,'type_id'=>$taskTypeId]);
+        if($task->status == Tasks::STATUS_REJECTED)//如果更改的这个任务是退回的，只把审批任务里的人同步一下并改下审批状态
+        {
+            if(!self::updateAll(['status'=>self::STATUS_UNAPPROVE],['task_id'=>$task->id]))
+                return false;
+        }
+        else if($task->status == Tasks::STATUS_UNCOMMIT)//如果没有提交这个任务(待提交)，要生成审批人审批
+        {
+            foreach($arrApprovers['approvers'] as $userId)//生成审批任务
+            {
+                $userTask = new self();
+                $userTask->task_id = $task->id;
+                $userTask->user_id = $userId;
+                $userTask->updated_at = time();
+                $userTask->status = self::STATUS_UNAPPROVE;
+                if(!$userTask->save())
+                    return false;
+            }
+        }
+        $task->status = Tasks::STATUS_COMMITED;
+        $task->remark = $_POST['taskRemark'];
+        if(!$task->save())
+            return false;
+        //发邮件
+        CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$arrApprovers['mail'],$task->name,$arrApprovers['code'],'user-task/index');
+
+        return true;
+
+    }
+
+    /**
+     * 给定任务id和用户id生成一个个人审批任务
+     */
+    static public function GenerateUserTask($arrApprover,$taskId)
+    {
+        foreach ($arrApprover as $userId)
+        {
+            $userTask = new UserTask();
+            $userTask->task_id = $taskId;
+            $userTask->user_id = $userId;
+            $userTask->updated_at = time();
+            $userTask->created_at = time();
+            $userTask->status = 0;
+            if(!$userTask->save())
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * 浏览个人任务时，点击任务名称时，是查看还是更新
+     */
+    public function getALinkTask()
+    {
+        $mdlTask = $this->tasks;
+        if($mdlTask->type == $mdlTask::TASK_TYPE_MATERIAL||$mdlTask->type == $mdlTask::TASK_TYPE_MTR_APPROVER1||$mdlTask->type == $mdlTask::TASK_TYPE_MTR_APPROVER2)
+        {//说明是物料的ID
+            $mtrName = $mdlTask->modifyMaterial->mfr_part_number;
+            if(empty($mdlTask->modifyMaterial->mfr_part_number))
+                $mtrName = $mdlTask->modifyMaterial->part_name;
+            return Html::a($mdlTask->name.'：'.$mtrName,
+                    ['/modify-material/view','id'=>$mdlTask->type_id,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_ECR1||$mdlTask->type == $mdlTask::TASK_TYPE_ECR2||
+            $mdlTask->type == $mdlTask::TASK_TYPE_ECR3||$mdlTask->type == $mdlTask::TASK_TYPE_ECR4)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->ecr->serial_number,
+                ['/ecr/view','id'=>$mdlTask->type_id,'type'=>$mdlTask->type,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_ECN1||$mdlTask->type == $mdlTask::TASK_TYPE_ECN2||
+            $mdlTask->type == $mdlTask::TASK_TYPE_ECN3||$mdlTask->type == $mdlTask::TASK_TYPE_ECN4)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->ecn->serial_number,
+                    ['/ecn/view','id'=>$mdlTask->type_id,'type'=>$mdlTask->type,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_BOM_UPLOAD)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->bomsParent->material->zc_part_number,
+                    ['/boms/upload-view','id'=>$mdlTask->bomsParent->parent_id,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_PROJECT_FILE_UPLOAD)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->projectProcess->name,
+                ['/project-attachment/view','id'=>$mdlTask->type_id,'idUserTask'=>$this->id]);
+        }
+        else if($mdlTask->type == $mdlTask::TASK_TYPE_MTR_FILE_UPLOAD)
+        {
+            return Html::a($mdlTask->name.'：'.$mdlTask->materialAttachment->name,
+                ['/projects/mtr-file-view','id'=>$mdlTask->type_id,'idUserTask'=>$this->id]);
+        }
+        else
+        {
+            var_dump($mdlTask->type);
+            echo '去Tasks::getAlinkTask()增加新任务的连接';die;
+        }
+    }
+
+}

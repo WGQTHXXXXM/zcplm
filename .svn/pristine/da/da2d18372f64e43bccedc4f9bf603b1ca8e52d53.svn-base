@@ -1,0 +1,147 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\ActiveForm;
+use kartik\select2\Select2;
+use kartik\file\FileInput;
+use yii\helpers\Url;
+use kartik\dialog\Dialog;
+
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\Ecr */
+/* @var $form yii\widgets\ActiveForm */
+?>
+
+<div class="ecr-form">
+
+    <?php $form = ActiveForm::begin(['options' => ['enctype' => 'multipart/form-data']]); ?>
+    <input id="taskRemark" type="hidden" name="taskRemark">
+    <input id="taskCommit" type="hidden" name="taskCommit">
+    <div class="row">
+        <div class="col-md-7">
+            <?= $form->field($model, 'reason')->textarea(['rows' => 6]) ?>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-7">
+            <?= $form->field($model, 'detail')->textarea(['rows' => 6]) ?>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-5">
+        <?= $form->field($model, 'module')->textInput(['maxlength' => true]) ?>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-5">
+            <?= $form->field($model, 'project_process')->textInput(['maxlength' => true]) ?>
+        </div>
+    </div>
+    <br><br><br>
+    <h3>附件</h3>
+    <div class="row">
+        <div class="col-md-9">
+            <?php
+            echo FileInput::widget([
+                    'model' => $model,
+                    'attribute' => 'uploadFile[]',
+                    'options' => ['multiple' => true],
+                    'pluginOptions' => [
+
+                        // 异步上传的接口地址设置
+                        'uploadUrl' => Url::toRoute(['/attachments/async-upload']),
+                        // 异步上传需要携带的其他参数，比如material_id等
+                        'uploadExtraData' => [
+                            //'material_id' => $id,
+                        ],
+                        'uploadAsync' => true,
+
+                        // 需要预览的文件格式
+                        'allowedFileExtensions' => [
+                            'jpg', 'bmp', 'png', 'txt', 'pdf', 'xls', 'xlsx', 'doc', 'docx', 'ppt', 'pptx'],
+                        'maxFileSize'=>10486,
+                        // 预览的文件
+                        'initialPreview' => empty($preview)?[]:$preview,
+                        'initialPreviewConfig' => empty($previewCfg)?[]:$previewCfg,
+                        'initialPreviewAsData'=>true,
+                        //上传最大
+                        'maxFileCount' => 5,
+                        //编辑框边不显示的三个按钮
+                        'showRemove' => false,
+                        'showUpload' => false,
+                        'showBrowse' => false,
+                        //上传新的不把以前的冲掉
+                        'overwriteInitial'=>false,
+
+                        //每个文件的选项
+                        'fileActionSettings' => ['showUpload' => false,'showZoom'=>false],
+                        // 展示图片区域是否可点击选择多文件
+                        'browseOnZoneClick' => true,
+                    ],
+                ]);
+            ?>
+        </div>
+    </div>
+    <br><br><br>
+    <div class="form-group">
+        <?= Html::Button($model->isNewRecord ? Yii::t('common', 'Create') : Yii::t('common', 'Update'),
+            ['class' => $model->isNewRecord ? 'btn btn-success' : 'btn btn-primary','id'=>'btn-submit']); ?>
+    </div>
+
+    <?php ActiveForm::end(); ?>
+
+</div>
+
+<?php
+//弹框控件，其它默认，prompt框改下默认的配置
+echo Dialog::widget([
+    'dialogDefaults'=>[
+
+        Dialog::DIALOG_PROMPT => [
+            'draggable' => true,
+            'closable' => true,
+            'title' => '是否马上提交任务',
+            'buttons' => [
+                [
+                    'label' => '稍后提交任务',
+                    'icon' => Dialog::ICON_CANCEL
+                ],
+                [
+                    'label' => '马上提交任务',
+                    'icon' => Dialog::ICON_OK,
+                    'class' => 'btn-primary'
+                ],
+            ]
+        ],
+
+    ]
+]);
+$js = <<<JS
+
+/**
+* 提交表单的按钮
+*/
+$('#btn-submit').on('click',function() {
+    krajeeDialog.prompt({label:'备注', placeholder:'任务的备注...'}, function (result) {
+        if (result!=null) 
+        {
+            $('#taskRemark').val(result);
+            $('#taskCommit').val('1');
+        }
+        else 
+        {
+            $('#taskRemark').val('');
+            $('#taskCommit').val('0');
+        }       
+        $('#w0').submit();
+    });
+});
+JS;
+$this->registerJs($js);
+
+
+?>

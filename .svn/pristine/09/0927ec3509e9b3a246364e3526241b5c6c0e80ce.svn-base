@@ -1,0 +1,176 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "ecn_change_set".
+ *
+ * @property integer $id
+ * @property integer $ecn_id
+ * @property integer $type
+ * @property string $serial_number
+ * @property integer $stock_processing
+ * @property integer $updated_at
+ * @property integer $original_material_id
+ * @property integer $new_material_id
+ * @property integer $adj_type
+ * @property integer $original_qty
+ * @property integer $qty
+ * @property string $position
+ */
+class EcnChangeSet extends \yii\db\ActiveRecord
+{
+    //变理集合类型
+    const CHANGE_TYPE = [1=>'替换',2=>'调整数量',3=>'增加',4=>'删除',5=>'替代群组'];
+    const CT_REPLACE = 1;
+    const CT_ADJQTY = 2;
+    const CT_ADD = 3;
+    const CT_REMOVE = 4;
+    const CT_ALTGROUP = 5;
+
+    //库存处理
+    const STOCK_PROCESSING = [0=>'报废',1=>'移作他用',2=>'用完为止'];
+
+    //调整数量里的调整类型
+    const ADJQTY_TYPE = [0=>'减少',1=>'增加'];
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'ecn_change_set';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['ecn_id', 'type', 'serial_number', 'stock_processing', 'updated_at', 'original_material_id'], 'required'],
+            [['ecn_id', 'type', 'stock_processing', 'updated_at', 'original_material_id', 'new_material_id', 'adj_type', 'original_qty', 'qty'], 'integer'],
+            [['serial_number'], 'string', 'max' => 30],
+            [['position'], 'string', 'max' => 255],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'ecn_id' => Yii::t('material', 'ecn的id号'),
+            'type' => Yii::t('material', '变更类型'),
+            'serial_number' => Yii::t('material', '编号'),
+            'stock_processing' => Yii::t('material', '库存处理'),
+            'updated_at' => Yii::t('material', '更新时间'),
+            'original_material_id' => Yii::t('material', '原物料'),
+            'new_material_id' => Yii::t('material', '目标物料'),
+            'adj_type' => Yii::t('material', '调整类型'),
+            'original_qty' => Yii::t('material', '原本数量'),
+            'qty' => Yii::t('material', '数量'),
+            'position' => Yii::t('material', '位置'),
+        ];
+    }
+
+    //////////////虚拟联合表///////////
+    /**
+     * 带智车料号的变量集合
+     */
+    public static function getTblPartStr()
+    {
+        return self::find()->leftJoin('materials as mo','mo.material_id=ecn_change_set.original_material_id')
+            ->leftJoin('materials as mn','mn.material_id=ecn_change_set.new_material_id')->
+            select('ecn_change_set.*,
+                    mo.zc_part_number as original_material,
+                    mo.description as original_material_desc,
+                    mn.zc_part_number as new_material,
+                    mn.description as new_material_desc');
+    }
+
+
+
+    /**
+     * 关联物料表的原始零件
+     */
+    public function  getPartOrg()
+    {
+        return $this->hasOne(Materials::className(),['material_id'=>'original_material_id']);
+    }
+
+    /**
+     * 关联物料表的新零件
+     */
+    public function getPartNew()
+    {
+        return $this->hasOne(Materials::className(),['material_id'=>'new_material_id']);
+    }
+
+    /**
+     * 关联使用者的表
+     */
+    public function getPartUser()
+    {
+        return $this->hasMany(EcnPartUser::className(),['ecn_change_id'=>'id']);
+    }
+
+
+
+    /**
+     * 手动保存变更集合
+     */
+    public static function saveChangeSet($ecnId,$serial_number)
+    {
+        $dataPost = $_POST['Ecn'];
+        foreach ($dataPost['change_type'] as $key=>$type)
+        {
+            $mdlChangeSet = new EcnChangeSet();
+            $mdlChangeSet->ecn_id = $ecnId;
+            $mdlChangeSet->type = $type;
+            //看是否与ECN编号相同（有可能编辑时间过长，别人已经生成两个ECN,这时就会不准）
+            if($serial_number!=substr($dataPost['change_sn'][$key],0,16))
+                $dataPost['change_sn'][$key] = $serial_number.substr($dataPost['change_sn'][$key],16);
+            $mdlChangeSet->serial_number = $dataPost['change_sn'][$key];
+            $mdlChangeSet->stock_processing = $dataPost['stock_processing'][$key];
+            $mdlChangeSet->updated_at = time();
+            $mdlChangeSet->original_material_id = $dataPost['original_material'][$key];
+            //分类保存
+            switch ($type)
+            {
+                case self::CT_REPLACE://替换
+                    $mdlChangeSet->new_material_id = $dataPost['new_material'][$key];
+                    break;
+                case self::CT_ADJQTY://调整数量
+                    $mdlChangeSet->adj_type = $dataPost['adj_type'][$key];
+                    $mdlChangeSet->original_qty = $dataPost['original_qty'][$key];
+                    $mdlChangeSet->qty = $dataPost['qty'][$key];
+                    $mdlChangeSet->position = $dataPost['position'][$key];
+                    break;
+                case self::CT_ADD://增加
+                    $mdlChangeSet->new_material_id = $dataPost['new_material'][$key];
+                    $mdlChangeSet->qty = $dataPost['qty'][$key];
+                    $mdlChangeSet->position = $dataPost['position'][$key];
+                    break;
+                case self::CT_REMOVE://删除
+                    break;
+                case self::CT_ALTGROUP://替换群组
+                    break;
+            }
+            if(!$mdlChangeSet->save())//分配完数据保存
+                return false;
+            //保存选中的使用者
+            if(!EcnPartUser::savePartUser($key,$mdlChangeSet))
+                return false;
+        }
+        return true;
+    }
+
+
+
+
+}

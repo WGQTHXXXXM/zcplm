@@ -1,0 +1,188 @@
+<?php
+
+namespace frontend\controllers;
+
+use frontend\models\EcnChangeSet;
+use Yii;
+use frontend\models\Ecn;
+use frontend\models\EcnSearch;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use frontend\models\Tasks;
+use frontend\models\Bomecn;
+use frontend\models\EcApproval;
+use frontend\models\UserTask;
+use yii\data\ActiveDataProvider;
+
+/**
+ * EcnController implements the CRUD actions for Ecn model.
+ */
+class EcnController extends Controller
+{
+    const ECN_CREATE='新增ECN';
+    const ECN_UPDATE = '更新ECN';
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all Ecn models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+        $searchModel = new EcnSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**
+     * Displays a single Ecn model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        //审批人数据
+        $taskId = Tasks::findOne(['type'=>Tasks::TASK_TYPE_ECN,'type_id'=>$id])->id;
+        $query = UserTask::find()->where(['task_id'=>$taskId]);
+        $dataApprover = new ActiveDataProvider([
+            'query' => $query,
+        ]);
+        //变更集合的数据
+        $changeSets = EcnChangeSet::findAll(['ecn_id'=>$id]);
+
+        return $this->render('view', [
+            'model' => $this->findModel($id),
+            'dataProvider' => $dataApprover,
+            'changeSets'=>$changeSets,
+        ]);
+    }
+
+    /**
+     * Creates a new Ecn model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate($TaskId)
+    {
+        $model = new Ecn();
+        //得到相关联的ECR
+        $EcrId = Tasks::findOne($TaskId)->type_id;
+        //给模型添加上编号，时间，状态，用户等数据
+        $model->addAutoData($EcrId);
+
+        if ($model->load(Yii::$app->request->post()))
+        {
+            $transaction = Yii::$app->db->beginTransaction();//开户事务
+            $isSuc = true;//标志着是否保存成功
+            if(!$model->save())//保存ECN
+                $isSuc = false;
+            if($isSuc == false || !$model->saveApprover())//保存审批人
+                $isSuc = false;
+            if($isSuc == false || !$model->saveChangeSet())//保存变更集合
+                $isSuc = false;
+            if($isSuc == true || Tasks::updateAll(['status'=>Tasks::STATUS_APPROVED],['id'=>$TaskId]))//以上保存成功
+            {
+                //找到审批人的邮箱
+                $mailAddr = EcApproval::find()->select('user_id')->where(['type'=>Tasks::TASK_TYPE_ECN,'ec_id'=>$model->id])->column();
+                //提交任务//立即提交或稍后提交成功后就保存到数据库
+                if(($_POST['taskCommit']==1 && Tasks::generateTask(Tasks::TASK_TYPE_ECN,$model->id,
+                            $this::ECN_CREATE,Tasks::STATUS_COMMITED,$mailAddr,$_POST['taskRemark']))||
+                    ($_POST['taskCommit']==0 && Tasks::generateTask(Tasks::TASK_TYPE_ECN,$model->id,$this::ECN_CREATE)))
+                {
+                    //提交到数据库
+                    $transaction->commit();
+                    return $this->redirect(['view', 'id' => $model->id]);
+                }
+            }
+            //不成功回退
+            $transaction->rollBack();
+        }
+        //把关联的ECR数据分配给ECN
+        $model->assignEcrDate($EcrId);
+
+        return $this->render('create', [
+            'model' => $model,
+            'dataUser'=>$model->getUserArr()
+        ]);
+    }
+
+    /**
+     * Updates an existing Ecn model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            return $this->redirect(['view', 'id' => $model->id]);
+        } else {
+            return $this->render('update', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Deletes an existing Ecn model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the Ecn model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return Ecn the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = Ecn::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    /**
+     * 寻找使用都的函数，返回该料的上一级
+     */
+    public function actionGetUpperLvl($id_child,$changeType)
+    {
+        $arrData = Bomecn::getParentByChild($id_child,$changeType)->asArray()->all();
+
+        return json_encode(['status' => 1, 'message' => '', 'data' => $arrData]);
+    }
+
+
+
+}

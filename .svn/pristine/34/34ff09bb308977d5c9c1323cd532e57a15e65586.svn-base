@@ -1,0 +1,89 @@
+<?php
+
+use yii\helpers\Html;
+use frontend\models\Tasks;
+use yii\grid\GridView;
+use kartik\date\DatePicker;
+
+/* @var $this yii\web\View */
+/* @var $searchModel frontend\models\EcrSearch */
+/* @var $dataProvider yii\data\ActiveDataProvider */
+
+$this->title = Yii::t('common', 'ECN');
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="ecr-index">
+
+    <h1><?= Html::encode($this->title) ?></h1>
+    <?php // echo $this->render('_search', ['model' => $searchModel]); ?>
+
+    <?= GridView::widget([
+        'tableOptions' => ['class' => 'table table-striped table-bordered table-hover'],
+        'dataProvider' => $dataProvider,
+        'filterModel' => $searchModel,
+        'columns' => [
+            ['class' => 'yii\grid\SerialColumn'],
+            'serial_number',
+            'module',
+            'project_process',
+            [
+                'attribute'=>'reason',
+                'value'=>'cutReason'
+            ],
+            [
+                'attribute'=>'detail',
+                'value'=>'cutDetail'
+            ],
+            [
+                'attribute'=>'created_at',
+                'value'=>function($model)
+                {
+                    return date('Y-m-d H:i:s',$model->created_at);
+                },
+                'filter'=>DatePicker::widget([
+                    'model' => $searchModel,
+                    'attribute' => 'created_at',
+                    'value' => $searchModel->created_at,
+                    'options' => ['readonly' => true],
+                ]),
+
+            ],
+            [
+                'attribute'=>'updated_at',
+                'value'=>function($model)
+                {
+                    return date('Y-m-d H:i:s',$model->updated_at);
+                },
+                'filter'=>DatePicker::widget([
+                    'model' => $searchModel,
+                    'attribute' => 'updated_at',
+                    'value' => $searchModel->updated_at,
+                    'options' => ['readonly' => true],
+                ]),
+
+
+            ],
+            [
+                'attribute'=>'user',
+                'label'=>'创建者',
+                'value'=>'tasks.user.username'
+            ],
+            [
+                'attribute'=>'status',
+                'label'=>'审批情况',
+                'value'=>function($model)
+                {
+                    return Tasks::STATUS_COMMIT[$model->tasks->status];
+                },
+                'filter'=>Tasks::STATUS_COMMIT
+            ],
+
+            [
+                'class' => 'yii\grid\ActionColumn',
+                'header'=>'操作',
+                'template' => '{view}',
+            ],
+        ],
+    ]); ?>
+</div>
+

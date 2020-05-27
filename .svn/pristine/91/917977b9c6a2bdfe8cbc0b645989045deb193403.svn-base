@@ -1,0 +1,67 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "class_brand_list".
+ *
+ * @property integer $id
+ * @property integer $class_id
+ * @property integer $brand_id
+ *
+ * @property ClassList $class
+ * @property BrandList $brand
+ */
+class ClassBrandList extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'class_brand_list';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['class_id', 'brand_id'], 'required'],
+            [['class_id', 'brand_id'], 'integer'],
+            [['class_id'], 'exist', 'skipOnError' => true, 'targetClass' => ClassList::className(), 'targetAttribute' => ['class_id' => 'id']],
+            [['brand_id'], 'exist', 'skipOnError' => true, 'targetClass' => BrandList::className(), 'targetAttribute' => ['brand_id' => 'id']],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('common', 'ID'),
+            'class_id' => Yii::t('common', 'Class ID'),
+            'brand_id' => Yii::t('common', 'Brand ID'),
+        ];
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getClass()
+    {
+        return $this->hasOne(ClassList::className(), ['id' => 'class_id']);
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getBrandList()
+    {
+        return $this->hasOne(BrandList::className(), ['id' => 'brand_id']);
+    }
+}

@@ -1,0 +1,184 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use yii\data\ActiveDataProvider;
+
+/**
+ * This is the model class for table "project_material".
+ *
+ * @property integer $material_id
+ * @property integer $project_process_id
+ */
+class ProjectMaterial extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'project_material';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public $remark,$file_class_name,$version;
+    public function rules()
+    {
+        return [
+//            [['material_id', 'project_process_id'], 'required'],
+//            [['material_id', 'project_process_id'], 'integer'],
+            [['remark','file_class_name'], 'safe'],
+
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'material_id' => Yii::t('material', '物料ID'),
+            'project_process_id' => Yii::t('material', '项目里程碑ID'),
+        ];
+    }
+
+    /*
+     * 获得该文件下的物料和不在该文件下的
+     */
+    public static function getFileAllMtr($id)
+    {
+        $tbla = ProjectMaterial::find()->leftJoin('materials','materials.parent_id=project_material.material_id')
+            ->select('max(materials.material_id) as maxid')
+            ->where(['project_material.project_process_id'=>$id])->groupBy('materials.parent_id');
+        $data['assigned'] = Materials::find()->alias('mtr1')->rightJoin(['mtr2'=>$tbla],'mtr1.material_id=mtr2.maxid')
+            ->select('mtr1.zc_part_number as zc_part_number,mtr1.parent_id as parent_id')
+            ->indexBy('parent_id')->column();
+
+
+        $tblb = Materials::find()->select('max(material_id) as maxid')->where(['not in','parent_id',array_keys($data['assigned'])])
+            ->groupBy('parent_id');
+        $data['avaliable'] = Materials::find()->alias('mtr1')->rightJoin(['mtr2'=>$tblb],'mtr1.material_id=mtr2.maxid')
+            ->select('mtr1.zc_part_number as zc_part_number,mtr1.parent_id as parent_id')
+            ->indexBy('parent_id')->column();
+        return $data;
+    }
+
+    /*
+     *获得该文件下的物料
+     */
+    public function search($id,$name,$params)
+    {
+        //找到这个文件下物料最新版本的物料ID
+        $tbla = ProjectMaterial::find()->leftJoin('materials','materials.parent_id=project_material.material_id')
+            ->select('max(materials.material_id) as maxid')
+            ->where(['project_material.project_process_id'=>$id])->groupBy('materials.parent_id');
+        //找到这个文件下物料所对应的最新版本
+        $tblb = MaterialAttachment::find()->alias('mtrF1')
+            ->rightJoin(['tbla'=>$tbla],'tbla.maxid = mtrF1.material_id and mtrF1.modify_material_id<>-1 and mtrF1.file_class_name="'.$name.'"')
+            ->select('max(mtrF1.version) as version,maxid')->groupBy('maxid');
+
+        $query = MaterialAttachment::find()->alias('mtrF2')->rightJoin(['tblb'=>$tblb],
+            'tblb.version=mtrF2.version and tblb.maxid=mtrF2.material_id and mtrF2.file_class_name="'.$name.'"')
+            ->leftJoin('materials as mtr2','mtr2.material_id=tblb.maxid')
+            ->select('mtr2.zc_part_number as remark,mtr2.part_name as file_class_name,mtr2.description as desc
+            ,mtrF2.name,mtrF2.path,mtrF2.version,tblb.maxid as material_id')
+            ;//->groupBy('tblb.maxid');
+
+        $dataProvider = new ActiveDataProvider([
+            'query'=>$query,
+            'pagination' => [
+                'pagesize' => '10',
+                //'route'=>'/materials/index',
+            ],
+        ]);
+
+        $this->load($params);
+        if (!$this->validate()) {
+            return $dataProvider;
+        }
+        $query->andFilterWhere(['like', 'mtr2.part_name', $this->file_class_name])
+            ->andFilterWhere(['like', 'mtr2.zc_part_number', $this->remark]);
+        //var_dump($data->pagination);die;
+        return $dataProvider;
+    }
+
+    /*
+     * 计算百分比
+     */
+    public static function figureProcess($node)
+    {
+        $fileid = $node->children()->andWhere('lvl=3')->select('id')->column();
+        $filename = $node->children()->andWhere('lvl=3')->select('name')->column();
+        if(empty($fileid)){//文件
+            //找到这个文件下物料最新版本的物料ID
+            $tbla = ProjectMaterial::find()->leftJoin('materials','materials.parent_id=project_material.material_id')
+                ->select('max(materials.material_id) as maxid')
+                ->where(['project_material.project_process_id'=>$node->id])->groupBy('materials.parent_id');
+            //找到这个文件下物料所对应的最新版本
+            $data = MaterialAttachment::find()->alias('mtrF1')
+                ->rightJoin(['tbla'=>$tbla],'tbla.maxid = mtrF1.material_id and mtrF1.modify_material_id<>-1 and mtrF1.file_class_name="'.$node->name.'"')
+                ->select('max(mtrF1.version) as version,maxid')->groupBy('maxid')->asArray()->all();
+        }else{//文件夹
+            //找到这个文件下物料最新版本的物料ID
+            $tbla = ProjectMaterial::find()->leftJoin('materials','materials.parent_id=project_material.material_id')
+                ->leftJoin('project_process','project_process.id=project_material.project_process_id')
+                ->select('max(materials.material_id) as maxid,project_process.name')
+                ->where(['project_material.project_process_id'=>$fileid])
+                ->groupBy('materials.parent_id,project_material.project_process_id');
+            //找到这个文件下物料所对应的最新版本
+            $data = MaterialAttachment::find()->alias('mtrF1')
+                //->rightJoin(['tbla'=>$tbla],'tbla.maxid = mtrF1.material_id and mtrF1.modify_material_id<>-1 and mtrF1.file_class_name in ("'.implode('","',$filename).'")')
+                ->rightJoin(['tbla'=>$tbla],'tbla.maxid = mtrF1.material_id and mtrF1.modify_material_id<>-1 and
+                 tbla.name=mtrF1.file_class_name')
+                ->select('max(mtrF1.version) as version,maxid')->groupBy('maxid,tbla.name')->asArray()->all();
+        }
+        //echo ($data->createCommand()->getRawSql());die;
+        $mu=0;$zi=0;
+        foreach ($data as $val){
+            if(!empty($val['version']))
+                $zi++;
+            $mu++;
+        }
+        //var_dump($zi,$mu,$data->asArray()->all());die;
+        if($mu == 0)
+            return 100;
+        return [intval($zi/$mu*100),$zi,$mu];
+    }
+
+    /*
+     * 给文件分配物料
+     */
+    public static function assignMtr($id)
+    {
+        $dataPost = $_POST['items'];
+        foreach ($dataPost as $value)
+        {
+            $newMdl = new ProjectMaterial();
+            $newMdl->material_id = $value;
+            $newMdl->project_process_id = $id;
+            if(!$newMdl->save())
+                return false;
+        }
+        return true;
+    }
+
+    /*
+     * 给文件删除物料
+     */
+    public static function removeMtr($id)
+    {
+        $dataPost = $_POST['items'];
+        foreach ($dataPost as $value){
+            $delMdl = ProjectMaterial::deleteAll(['material_id'=>$value,'project_process_id'=>$id]);
+            if(!$delMdl)
+                return false;
+
+        }
+        return true;
+    }
+
+}

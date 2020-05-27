@@ -1,0 +1,68 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\DetailView;
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\ModifyMaterial */
+
+$this->title = $model->id;
+$this->params['breadcrumbs'][] = ['label' => Yii::t('common', 'Modify Materials'), 'url' => ['index']];
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="modify-material-view">
+
+    <h1><?= Html::encode($this->title) ?></h1>
+
+
+    <?= DetailView::widget([
+        'model' => $model,
+        'attributes' => [
+            'mfr_part_number',
+            [
+                'attribute' => 'manufacturer2_id',
+                'value' => empty($model->manufacturer2)?"":$model->manufacturer2->mfr_part_number,
+            ],
+            [
+                'attribute' => 'manufacturer3_id',
+                'value' => empty($model->manufacturer3)?"":$model->manufacturer3->mfr_part_number,
+            ],
+            [
+                'attribute' => 'manufacturer4_id',
+                'value' => empty($model->manufacturer4)?"":$model->manufacturer4->mfr_part_number,
+            ],
+            'description',
+            'pcb_footprint',
+            'vehicle_standard',
+            'date_entered',
+            'assy_level',
+            'purchase_level',
+
+            [
+                'attribute' => 'manufacturer',
+                'value' => empty($model->manufacturer1)?"":$model->manufacturer1->name,
+            ],
+            'zc_part_number',
+            [
+                'attribute' => 'vehicle_standard',
+                'value' => key_exists($model->vehicle_standard,$model::VEHICLE_STANDARD)?$model::VEHICLE_STANDARD[$model->vehicle_standard]:"",
+            ],
+
+            //元件类型
+            [
+                'attribute' => 'part_type',
+                'value' => $model->partType->name,
+            ],
+            'value',
+            'schematic_part',
+            'price',
+            [
+                'attribute' => 'recommend_purchase',
+                'value' => $model::RECOMMEND_PURCHASE[$model->recommend_purchase],
+            ],
+            'lead_time',
+            'minimum_packing_quantity',
+        ],
+    ]) ?>
+
+</div>

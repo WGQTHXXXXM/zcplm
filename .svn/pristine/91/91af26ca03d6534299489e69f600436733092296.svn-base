@@ -1,0 +1,98 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use yii\base\Model;
+use yii\data\ActiveDataProvider;
+use frontend\models\Ecr;
+
+/**
+ * EcrSearch represents the model behind the search form about `frontend\models\Ecr`.
+ */
+class EcrSearch extends Ecr
+{
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['id'], 'integer'],
+            [['serial_number', 'created_at', 'updated_at', 'reason',
+                'detail', 'module','project_process', 'status','user'], 'safe'],
+        ];
+    }
+
+    public function attributes()
+    {
+        return array_merge(parent::attributes(),['status','user']);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function scenarios()
+    {
+        // bypass scenarios() implementation in the parent class
+        return Model::scenarios();
+    }
+
+    /**
+     * Creates data provider instance with search query applied
+     *
+     * @param array $params
+     *
+     * @return ActiveDataProvider
+     */
+    public function search($params)
+    {
+        $query = Ecr::find();
+
+        $query->innerJoin('tasks','tasks.type='.Tasks::TASK_TYPE_ECR.' and tasks.type_id=ecr.id')->select('ecr.*,tasks.status');
+        $query->innerJoin('user','tasks.user_id = user.id');
+
+        // add conditions that should always apply here
+
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+        ]);
+
+        $this->load($params);
+
+        if (!$this->validate()) {
+            // uncomment the following line if you do not want to return any records when validation fails
+            // $query->where('0=1');
+            return $dataProvider;
+        }
+
+        $dataProvider->sort->attributes['status'] =
+            [
+                'asc'=>['tasks.status'=>SORT_ASC],
+                'desc'=>['tasks.status'=>SORT_DESC],
+            ];
+        $dataProvider->sort->attributes['user'] =
+            [
+                'asc'=>['user.username'=>SORT_ASC],
+                'desc'=>['user.username'=>SORT_DESC],
+            ];
+
+        // grid filtering conditions
+        $query->andFilterWhere([
+            'id' => $this->id,
+//            'created_at' => $this->created_at,
+//            'updated_at' => $this->updated_at,
+        ]);
+
+        $query->andFilterWhere(['like', 'serial_number', $this->serial_number])
+            ->andFilterWhere(['like', 'reason', $this->reason])
+            ->andFilterWhere(['like', 'detail', $this->detail])
+            ->andFilterWhere(['like', 'module', $this->module])
+            ->andFilterWhere(['like', 'project_process', $this->project_process])
+            ->andFilterWhere(['like', 'user.username', $this->user])
+            ->andFilterWhere(['like', 'tasks.status', $this->status]);
+
+        return $dataProvider;
+    }
+
+}

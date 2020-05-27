@@ -1,0 +1,64 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "ecn_change_set".
+ *
+ * @property integer $id
+ * @property integer $ecn_id
+ * @property integer $type
+ * @property string $serial_number
+ * @property integer $stock_processing
+ * @property integer $updated_at
+ * @property integer $original_material_id
+ * @property integer $new_material_id
+ * @property integer $adj_type
+ * @property integer $qty
+ * @property string $position
+ */
+class EcnChangeSet extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'ecn_change_set';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['ecn_id', 'type', 'serial_number', 'stock_processing', 'updated_at', 'original_material_id'], 'required'],
+            [['ecn_id', 'type', 'stock_processing', 'updated_at', 'original_material_id', 'new_material_id', 'adj_type', 'qty'], 'integer'],
+            [['serial_number'], 'string', 'max' => 30],
+            [['position'], 'string', 'max' => 255],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'ecn_id' => Yii::t('material', 'ecn的id号'),
+            'type' => Yii::t('material', '变更类型'),
+            'serial_number' => Yii::t('material', '编号'),
+            'stock_processing' => Yii::t('material', '库存处理'),
+            'updated_at' => Yii::t('material', '更新时间'),
+            'original_material_id' => Yii::t('material', '原物料'),
+            'new_material_id' => Yii::t('material', '目标物料'),
+            'adj_type' => Yii::t('material', '调整类型'),
+            'qty' => Yii::t('material', '数量'),
+            'position' => Yii::t('material', '位置'),
+        ];
+    }
+}

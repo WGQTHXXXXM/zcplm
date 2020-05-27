@@ -1,0 +1,195 @@
+<?php
+
+use yii\helpers\Html;
+use kartik\grid\GridView;
+use kartik\editable\Editable;
+use kartik\dialog\Dialog;
+use yii\helpers\Url;
+use yii\bootstrap\Modal;
+use kartik\popover\PopoverX;
+
+/* @var $this yii\web\View */
+/* @var $searchModel frontend\models\TasksSearch */
+/* @var $dataProvider yii\data\ActiveDataProvider */
+
+$this->title = Yii::t('common', '个人任务');
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="tasks-index">
+
+    <h1><?= Html::encode($this->title) ?></h1>
+
+    <?= GridView::widget([
+        'dataProvider' => $dataProvider,
+        'striped' => true,
+        'export' => false,
+        'toggleData' => false,
+        'hover'=>true,
+        'bordered'=>true,
+        'panel' => ['type' => 'success', 'heading' => "个人任务清单"],
+        'columns' => [
+            ['class' => 'yii\grid\SerialColumn'],
+            [
+                'attribute'=>'name',
+                'format'=>'raw',
+                'value'=>'alinkTask'
+            ],
+            [
+                'attribute'=>'status',
+                'format'=>'raw',
+                'contentOptions'=> function($model)
+                {
+                    return ($model->status==$model::STATUS_UNCOMMIT||$model->status==$model::STATUS_REJECTED
+                        ||$model->status==$model::STATUS_CREATE_ECN)?['class'=>'bg-danger']:[];
+                },
+                'value'=>function($model,$key){
+                    if ($model->type == $model::TASK_TYPE_ECR&&$model->status==$model::STATUS_CREATE_ECN)
+                    {
+                        return Html::a($model::STATUS_COMMIT[$model->status], 'javascript:;',['onclick'=>"createEcn($key)"]);
+                    }
+                    else if($model->type == $model::TASK_TYPE_ECN)//没有稍后提交，所以不可以在外面提交
+                        return Html::a($model::STATUS_COMMIT[$model->status], 'javascript:;',[]);
+                    return Html::a($model::STATUS_COMMIT[$model->status], 'javascript:;',
+                        ($model->status==$model::STATUS_UNCOMMIT||$model->status==$model::STATUS_REJECTED)?['onclick'=>"stat($key)"]:[]);
+                }
+            ],
+            [
+                'class'=>'kartik\grid\EditableColumn',
+                'attribute'=>'remark',
+                'width'=>'180px',
+                'editableOptions'=> function ($model)
+                {
+                    return [
+                        'submitButton'=>['icon'=>'<i class="glyphicon glyphicon-floppy-disk"></i>','class'=>'btn btn-sm btn-primary kv-editable-submit'],
+                        'size' => 'md',
+                        'placement' => PopoverX::ALIGN_BOTTOM_RIGHT,
+                        'formOptions' => ['action' => ['/tasks/do-remark']], // point to the new action
+                        'inputType' => Editable::INPUT_TEXTAREA,
+                        'displayValue' => $model->remark? (strlen($model->remark)<=30? $model->remark : substr($model->remark,0,30).'...') : '',
+                        'submitOnEnter' => false,
+                        'buttonsTemplate' => ($model->status==$model::STATUS_UNCOMMIT||$model->status==$model::STATUS_REJECTED)?'{reset}{submit}':'',
+                        'readonly'=>($model->status==$model::STATUS_UNCOMMIT||$model->status==$model::STATUS_REJECTED)?false:true,
+                        'valueIfNull'=>false,
+                        'editableValueOptions'=>['style' => 'border-bottom:0px;'],
+                        //'rows' => 5,
+                    ];
+                }
+            ],
+            //操作
+            [
+                'class' => 'yii\grid\ActionColumn',
+                'header'=>'详情',
+                'template' => '{/user-task/view}',
+                'buttons' => [
+                    '/user-task/view' => function ($url, $model, $key) {
+                        if($model->status==$model::STATUS_COMMITED||$model->status==$model::STATUS_REJECTED)
+                            return Html::a('<span class="fa fa-mail-forward"></span>', $url,
+                                ['data-toggle'=>'modal','data-target'=>'#approve-modal','class'=>'approve-detail']);
+                    },
+                ],
+            ],
+            [
+                'attribute' => 'date',
+                'format' => ['date','php:Y-m-d H:i:s']
+            ],
+//            [
+//                'class' => 'yii\grid\ActionColumn',
+//                'template' => '{delete}',
+//                'header'=>'删除',
+//                'visible' => Yii::$app->user->identity->username == 'songwei'?1:0,
+//                //'visible' => Helper::checkRoute('/tasks/delete') == 'admin'?1:0,
+//            ],
+
+        ],
+    ]); ?>
+</div>
+
+<?php
+//弹出的审批详情
+$approveDetail = Url::toRoute('/user-task/view');
+//模态对话框
+Modal::begin([
+    'id' => 'approve-modal',
+    'header' => '<h3 class="modal-title">审批详情'.'</h3>',
+    'footer' => '<a href="#" class="btn btn-primary" data-dismiss="modal">Close</a>',
+]);
+$Js = <<<JS
+$('.approve-detail').on('click', function () {
+    //var id = $(this).attr('index');
+    $.get('{$approveDetail}', { id: $(this).closest('tr').data('key') },
+        function (data) {
+            $('.modal-body').html(data);
+        } 
+    );
+});
+JS;
+$this->registerJs($Js);
+Modal::end();
+?>
+
+
+<?php
+//弹出的confirm框
+echo Dialog::widget();
+//弹框控件，其它默认，prompt框改下默认的配置
+echo Dialog::widget([
+    'dialogDefaults'=>[
+
+        Dialog::DIALOG_CONFIRM => [
+            'type' => Dialog::TYPE_WARNING,
+            'closable' => true,
+            'title' => Yii::t('kvdialog', 'Confirmation'),
+            'btnOKClass' => 'btn-warning',
+            'draggable' => true,
+        ],
+
+    ]
+]);
+
+
+
+$doCommit = Url::toRoute('/tasks/do-commit');//提交路径
+$noCreateEcn = Url::toRoute('/tasks/no-create-ecn');
+$js = <<< JS
+function stat(key)
+{
+    krajeeDialog.confirm("确定提交任务吗？", function (result) 
+    {
+        if (result) 
+        {
+            $.get('$doCommit',{id:key},function(json) {
+                if(json.status){
+                    location.reload();
+                } 
+                else
+                    krajeeDialog.alert("提交失败");
+                location.reload();
+            },'json');
+            
+        }
+    });
+}
+
+function createEcn(key) 
+{
+    krajeeDialog.confirm("是否继续ECN？继续ECN点“是”，结束ECN点“否”。", function (result) 
+    {
+        if (result) 
+        {
+            location.href = '/ecn/create?TaskId='+key;
+        }
+        else
+        {
+            $.get('$noCreateEcn',{id:key},function(json) {
+                if(json.status){
+                    location.reload();
+                } 
+            },'json');
+        }
+    });
+    
+}
+JS;
+
+// register your javascript
+$this->registerJs($js, \yii\web\View::POS_BEGIN);

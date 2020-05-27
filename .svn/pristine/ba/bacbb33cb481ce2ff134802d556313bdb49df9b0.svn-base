@@ -1,0 +1,15 @@
+<?php
+namespace frontend\models;
+
+interface TaskInterface
+{
+    //创建任务
+    public function createTask();
+
+    //被退回的任务更新
+    public function updateTask(Tasks $mdlTask);
+
+    //任务通过的处理
+    public static function doPassTask(Tasks $mdlTask,UserTask $mdlUserTask=null);
+
+}

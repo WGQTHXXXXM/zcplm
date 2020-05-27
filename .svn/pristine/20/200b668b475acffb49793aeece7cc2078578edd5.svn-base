@@ -1,0 +1,42 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use yii\base\Model;
+
+/**
+ * SearchForm is the model for search items.
+ */
+class SearchForm extends Model
+{
+    public $search_category; //类别
+    public $serial_number; //编号
+
+    const BOM = 0;
+    const ECR = 1;
+    const ECN = 2;
+
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['search_category', 'serial_number'], 'required'],
+            [['serial_number'], 'string', 'max' => 50],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'search_category' => Yii::t('common', 'Search'),
+            'serial_number' => Yii::t('common', 'Serial Number'),
+        ];
+    }
+}

@@ -1,0 +1,105 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use yii\data\ActiveDataProvider;
+
+/**
+ * SearchForm is the model for search items.
+ */
+class SearchForm extends BomsParent
+{
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['zc_part_number','car_number','description','creater', 'parent_version', 'status','type',
+                'creater_id', 'created_at', 'updated_at'], 'safe'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        //return array_merge(parent::attributes(),['status','user']);
+        return parent::attributes();
+    }
+
+    public function search($params)
+    {
+        ///////////////////////////////////////////////////////////////////
+//        $query = BomsParent::find()->alias('pbom')
+//            ->select('mtr.zc_part_number as zc_part_number,max(parent_version) as parent_version,
+//                pbom.status as status,pbom.type as type,pbom.creater_id as creater_id,pbom.created_at as created_at,
+//                pbom.updated_at as updated_at,mtr.description as description,user.username as creater,pbom.parent_id as pid')
+//            ->leftJoin(['mtr'=>'materials'],'pbom.parent_id=mtr.material_id')
+//            ->leftJoin('user','user.id=pbom.creater_id')->groupBy('pbom.parent_id')->orderBy(['pbom.id'=>SORT_DESC]);
+        $query = BomsParent::find()->alias('pbom')
+            ->select('mtr.zc_part_number as zc_part_number,mtr.car_number as car_number,parent_version,pbom.id as id,
+                pbom.status as status,pbom.type as type,pbom.creater_id as creater_id,pbom.created_at as created_at,
+                pbom.updated_at as updated_at,mtr.description as description,user.username as creater,pbom.real_material as pid')
+            ->leftJoin(['mtr'=>'materials'],'pbom.real_material=mtr.material_id')
+            ->leftJoin('user','user.id=pbom.creater_id');//->orderBy(['pbom.id'=>SORT_DESC]);
+        //var_dump($query->asArray()->all());die;
+        // add conditions that should always apply here
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+            'pagination' => [
+                'pagesize' => '10',
+            ],
+            'sort' => ['defaultOrder' => ['id' => SORT_DESC]]
+        ]);
+
+        $this->load($params);
+
+        $dataProvider->sort->attributes['zc_part_number'] = [
+            'asc' => ['mtr.zc_part_number' => SORT_ASC],
+            'desc' => ['mtr.zc_part_number' => SORT_DESC],
+        ];
+
+        //echo $dataProvider->query->createCommand()->getRawSql();die;
+
+        if (!$this->validate()) {
+            // uncomment the following line if you do not want to return any records when validation fails
+            // $query->where('0=1');
+            return $dataProvider;
+        }
+
+
+        $query->andFilterWhere([
+            'parent_version' => $this->parent_version,
+            'pbom.status' => $this->status,
+            'pbom.type' => $this->type,
+        ]);
+        //时间的搜索用，没有值时是空（就不会搜索这个字段），有值时才会搜索，并把日期转成时间截。
+        $ctimeBg = '';
+        $ctimeEn = '';
+        $utimeBg = '';
+        $utimeEn = '';
+        if(!empty($this->created_at)){
+            $ctimeBg = strtotime(substr(str_replace(['年','月','日'],'-',$this->created_at),0,-1));
+            $ctimeEn = $ctimeBg+Yii::$app->params['timeStrapOneDay'];
+        }
+        if(!empty($this->updated_at)){
+            $utimeBg = strtotime(substr(str_replace(['年','月','日'],'-',$this->updated_at),0,-1));
+            $utimeEn = $utimeBg+Yii::$app->params['timeStrapOneDay'];
+        }
+        $query->andFilterWhere(['like', 'mtr.zc_part_number', $this->zc_part_number])
+            ->andFilterWhere(['like', 'description', $this->description])
+            ->andFilterWhere(['like', 'car_number', $this->car_number])
+            ->andFilterWhere(['like', 'user.username', $this->creater])
+            ->andFilterWhere(['between','pbom.created_at',$ctimeBg,$ctimeEn])
+            ->andFilterWhere(['between','pbom.updated_at',$utimeBg,$utimeEn]);
+
+        return $dataProvider;
+
+    }
+
+
+}

@@ -1,0 +1,21 @@
+<?php
+
+use yii\helpers\Html;
+
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\Boms */
+
+$this->title = Yii::t('bom', 'Create Boms');
+$this->params['breadcrumbs'][] = ['label' => Yii::t('bom', 'Boms'), 'url' => ['index']];
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="boms-create">
+
+    <h1><?= Html::encode($this->title) ?></h1>
+
+    <?= $this->render('_form', [
+        'model' => $model,
+    ]) ?>
+
+</div>

@@ -1,0 +1,37 @@
+/*蓝色带标题的虚线框*/
+.container-sw{
+    border-radius:20px;
+    border:1px dashed #41719c;
+    position: relative;
+    margin: 20px 20px 20px 20px;
+    padding: 20px;
+}
+.title-sw{
+    position: absolute;
+    top:-17px;
+    left:50px;
+    border-radius:5px;
+    background-color: #5b9bd5;
+    padding:4px 6px;
+    font-size: 18px;
+    color: white;
+}
+
+.container-sw-approver{
+    border-radius:2px;
+    /*border:1px solid #000;*/
+    position: relative;
+    margin: 20px 20px 20px 20px;
+    padding: 20px;
+}
+
+.title-sw-approver{
+    position: absolute;
+    top:-17px;
+    left:10px;
+    border-radius:2px;
+    /*background-color: #5b9bd5;*/
+    padding:4px 6px;
+    font-size: 18px;
+    color: #5b9bd5;
+}

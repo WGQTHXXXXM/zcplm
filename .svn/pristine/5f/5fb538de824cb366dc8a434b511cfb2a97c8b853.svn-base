@@ -1,0 +1,62 @@
+<?php
+
+use yii\widgets\ActiveForm;
+use kartik\file\FileInput;
+use yii\helpers\Html;
+
+$this->title = '导入BOM';
+$this->params['breadcrumbs'][] = $this->title;
+?>
+
+<h1><?= $this->title ?></h1>
+<br>
+<br>
+<br>
+<?php $form = ActiveForm::begin(['options' => ['enctype' => 'multipart/form-data']]);?>
+<div class="row">
+    <div class="col-md-3">
+        <?php echo $form->field($model, 'zcPartNo')->textInput(['maxlength' => true]);?>
+    </div>
+    <div class="col-md-3">
+        <label class="control-label" for="importbomform-filebom">选择文件</label>
+        <?php echo FileInput::widget([
+            'model' => $model,
+            'attribute' => 'bomFile',
+            'options' => ['multiple' => false],
+            'pluginOptions' => [
+
+                // 需要预览的文件格式
+                'allowedFileExtensions' => ['xls', 'xlsx'],
+                'maxFileSize'=>10486,
+                //不显示预览，显示文件名在input框
+                'showPreview' => false,
+                'showCaption' => true,
+                'showRemove' => false,
+                'showUpload' => false,
+            ],
+        ]);
+        ?>
+    </div>
+</div>
+
+
+<br>
+<br>
+<br>
+<div class="form-group">
+    <?= Html::submitButton("导入", ['class'=>'btn btn-primary','id'=>'btn-submit']); ?>
+</div>
+
+
+<?php ActiveForm::end(); ?>
+<?php
+
+//焦点离开input框的事件
+$js = <<<JS
+$('#importbomform-zcpartno').blur(modalDlg);
+JS;
+$this->registerJs($js);
+//查找智车料号的文件
+include('../views/layouts/publicjs.php');
+
+?>

@@ -1,0 +1,862 @@
+<?php
+
+namespace frontend\controllers;
+
+use common\components\CommonFunc;
+use common\models\User;
+use frontend\models\BomsParent;
+use frontend\models\ExtBomsParent;
+use frontend\models\MaterialApprover;
+use frontend\models\MaterialAttachment;
+use frontend\models\ProjectProcess;
+use frontend\models\Tasks;
+use Yii;
+use frontend\models\UserTask;
+use frontend\models\UserTaskSearch;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use yii\data\ActiveDataProvider;
+use frontend\models\MaterialEncodeRule;
+use frontend\models\ModifyMaterial;
+use frontend\models\Materials;
+use yii\filters\AccessControl;
+use frontend\models\Ecr;
+use frontend\models\Ecn;
+use frontend\models\Approver;
+
+/**
+ * UserTaskController implements the CRUD actions for UserTask model.
+ */
+class UserTaskController extends Controller
+{
+    //研发用的表，根据二级选择相应的表
+    private static $tableName = [
+        "res"=>"frontend\\models\\ZcRes",
+        "cap"=>"frontend\\models\\ZcCap",
+        "ind"=>"frontend\\models\\ZcInd",
+        "bead"=>"frontend\\models\\ZcBead",
+        "diode"=>"frontend\\models\\ZcDiode",
+        "triode"=>"frontend\\models\\ZcTriode",
+        "mos"=>"frontend\\models\\ZcMos",
+        "fuse"=>"frontend\\models\\ZcFuse",
+        "conn"=>"frontend\\models\\ZcConn",
+        "cry"=>"frontend\\models\\ZcCrystalOscillator",
+        "spring"=>"frontend\\models\\ZcSpring",
+        "buzzer"=>"frontend\\models\\ZcBuzzer",
+        "analog ic"=>"frontend\\models\\ZcAnalogIc",
+        "power ic"=>"frontend\\models\\ZcPowerIc",
+        "phy"=>"frontend\\models\\ZcPhy",
+        "memory"=>"frontend\\models\\ZcMemory",
+        "video"=>"frontend\\models\\ZcVideo",
+        "ap"=>"frontend\\models\\ZcAp",
+        "sensor"=>"frontend\\models\\ZcSensor",
+        "module/ic"=>"frontend\\models\\ZcRfModuleIc",
+        "ant"=>"frontend\\models\\ZcRfAnt",
+        "battery"=>"frontend\\models\\ZcBattery",
+        "pcba"=>"frontend\\models\\ZcPcbPcba",
+        "pcb"=>"frontend\\models\\ZcPcbPcba",
+    ];
+
+    /**
+     * 得到元件对应的表名
+     */
+    public static function getTableName()
+    {
+        return self::$tableName;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'access' => [
+                'class' => AccessControl::className(),
+                'only' => ['index'],
+                'rules' => [
+                    [
+                        'actions' => ['index'],
+                        'allow' => true,
+                        'roles' => ['@'],
+                    ],
+                ],
+            ],
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all UserTask models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+        $searchModel = new UserTaskSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+        //只找自己需要审批的并任务是已提交的并且是自己没有审批的
+//        $dataProvider->query->where(['user_task.status'=>UserTask::STATUS_UNAPPROVE,
+//            "user_task.user_id"=>Yii::$app->user->id,
+//            'tasks.status'=>Tasks::STATUS_COMMITED]);
+        $dataProvider->query->where(["user_task.user_id"=>Yii::$app->user->id]);
+
+
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**
+     * 审批人的指派
+     */
+    public function actionChangeUser()
+    {
+        //开启事务
+        $transaction  = Yii::$app->db->beginTransaction();
+        if (isset($_POST['hasEditable']))
+        {
+            Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;//这个表格编辑控件需要的
+            $mdlUserTask = UserTask::findOne($_POST['editableKey']);
+
+            $data = current($_POST['UserTask']);//表单数据
+            //审批人模型
+            $mdlOldMaterialApprover = $mdlUserTask->tasks->modifyMaterial->materialApprover;
+            //如果是物料的话，判断审批人，不可以让审批人相同;
+            if($mdlUserTask->tasks->type == Tasks::TASK_TYPE_MATERIAL||
+                $mdlUserTask->tasks->type == Tasks::TASK_TYPE_MTR_APPROVER1||
+                $mdlUserTask->tasks->type == Tasks::TASK_TYPE_MTR_APPROVER2)
+            {
+                if($data['userTaskUser'] == $mdlOldMaterialApprover->approver1||
+                    $data['userTaskUser'] == $mdlOldMaterialApprover->approver2||
+                    $data['userTaskUser'] == $mdlOldMaterialApprover->approver3dcc||
+                    $data['userTaskUser'] == $mdlOldMaterialApprover->approver3purchase)
+                {
+                    return ['output'=>'','message'=>'审批人不可重复审批'];
+                }
+                //看是改的哪级审批，然后改material_approver表
+                if($mdlOldMaterialApprover->approver1 == $mdlUserTask->user_id)
+                    $mdlOldMaterialApprover->approver1 = $data['userTaskUser'];
+                else if($mdlOldMaterialApprover->approver2 == $mdlUserTask->user_id)
+                    $mdlOldMaterialApprover->approver2 = $data['userTaskUser'];
+                else if($mdlOldMaterialApprover->approver3dcc == $mdlUserTask->user_id)
+                    $mdlOldMaterialApprover->approver3dcc = $data['userTaskUser'];
+                else if($mdlOldMaterialApprover->approver3purchase == $mdlUserTask->user_id)
+                    $mdlOldMaterialApprover->approver3purchase =$data['userTaskUser'];
+
+                if($mdlOldMaterialApprover->save())//更改采购审批人
+                {
+                    $mdlUserTask->user_id = $data['userTaskUser'];
+                    if($mdlUserTask->save())
+                    {
+                        $user = User::findOne($data['userTaskUser']);
+                        $mdlTask = Tasks::findOne($mdlUserTask->task_id);
+                        CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$user->email,$mdlTask->name,'','tasks/index');
+                        $transaction->commit();
+                        return ['output'=>'','message'=>''];
+                    }
+                    else
+                    {
+                        $transaction->rollBack();
+                        return ['output'=>'','message'=>'更新失败'];
+                    }
+                }
+                else
+                {
+                    $transaction->rollBack();
+                    return ['output'=>'','message'=>'更新失败'];
+                }
+            }
+            else
+            {
+                $mdlUserTask->user_id = $data['userTaskUser'];
+                if($mdlUserTask->save())
+                {
+                    $user = User::findOne($data['userTaskUser']);
+                    $mdlTask = Tasks::findOne($mdlUserTask->task_id);
+                    CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$user->email,$mdlTask->name,'','tasks/index');
+                    $transaction->commit();
+                    return ['output'=>'','message'=>''];
+                }
+            }
+        }
+        $transaction->rollBack();
+        return ['output'=>'', 'message'=>'更新失败'];
+
+    }
+
+    /**
+     *
+     * 审批管理
+     *
+     */
+    public function actionAdminIndex()
+    {
+        $searchModel = new UserTaskSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+
+        $dataUser = User::find()->select('username,id')->indexBy('id')->column();
+
+        return $this->render('admin-index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+            'dataUser'=>$dataUser,
+        ]);
+    }
+
+    /**
+     * Displays a single UserTask model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        $query = UserTask::find()->where(['task_id'=>$id]);
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+        ]);
+
+        return $this->renderAjax('view', [
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**
+     * Creates a new UserTask model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate()
+    {
+
+        $model = new UserTask();
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            return $this->redirect(['view', 'id' => $model->Id]);
+        } else {
+            return $this->render('create', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Updates an existing UserTask model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            return $this->redirect(['view', 'id' => $model->Id]);
+        } else {
+            return $this->render('update', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Deletes an existing UserTask model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the UserTask model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return UserTask the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = UserTask::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    /**
+     *
+     * 保存审批的结果
+     */
+    public function actionDoApprove()
+    {
+        $message = 'save data error.';//返回的消息
+        if (isset($_POST['hasEditable']))
+        {
+            $curTime = time();//当前时间
+            $transaction = Yii::$app->getDb()->beginTransaction();//开启事务
+            Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;//这个表格编辑控件需要的，响应格式要是JSON的
+            $mdlUserTask = UserTask::findOne($_POST['editableKey']);
+            $mdlUserTask->updated_at = $curTime;
+            $data = current($_POST['UserTask']);//表单数据
+            $mdlUserTask->remark = $data['userTaskRemark'];
+            if($data['userTaskStatus']==UserTask::STATUS_REJECTED)//如果审批拒绝
+            {
+                //把当前任务退回
+                $mdlTask = Tasks::findOne($mdlUserTask->task_id);
+                $mdlTask->status = Tasks::STATUS_REJECTED;//任务退回
+                $mdlUserTask->status = UserTask::STATUS_REJECTED;//审批拒绝
+                if($mdlUserTask->save()&&$mdlTask->save())//保存状态
+                {
+                    if ($mdlTask->type == Tasks::TASK_TYPE_ECN1||$mdlTask->type == Tasks::TASK_TYPE_ECN2||
+                        $mdlTask->type == Tasks::TASK_TYPE_ECN3||$mdlTask->type == Tasks::TASK_TYPE_ECN4)//如果是ECN退回
+                    {
+                        if(!ExtBomsParent::rejectEcn($mdlTask->type_id))
+                            return $this->approveFail($transaction,'处理bom表时出错');
+                    }else if($mdlTask->type == Tasks::TASK_TYPE_MATERIAL||
+                        $mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER1||
+                        $mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER2)//如果是物料被退回
+                    {
+                        if(!UserTask::updateAll(['approve_able'=>0],['task_id'=>$mdlTask->id]))
+                            return $this->approveFail($transaction,'更新审批表时出错 ');
+                        $mdlTask->type = Tasks::TASK_TYPE_MTR_APPROVER1;
+                        if(!$mdlTask->save())
+                            return $this->approveFail($transaction,'更新任务表时出错');
+                    }else if($mdlTask->type == Tasks::TASK_TYPE_MTR_FILE_UPLOAD){
+                        $mdlTemp = MaterialAttachment::findOne($mdlTask->type_id);
+                        $count = MaterialAttachment::find()->where(['path'=>$mdlTemp->path])->count();
+                        if($count==1&&file_exists($mdlTemp->path))
+                            unlink($mdlTemp->path);
+                    }
+
+                    $arrApprovers = Tasks::getApprovers($mdlTask->type,$mdlTask->type_id,true,$mdlTask->user_id);
+                    CommonFunc::sendMail(CommonFunc::APPROVE_REJECT,$arrApprovers['mail'],$mdlTask->name,$arrApprovers['code'],'user-task/index');
+                    $transaction->commit();
+                    Yii::$app->getSession()->setFlash('success', "审批成功，任务已经被退回");
+                    return ['output'=>'', 'message'=>''];
+                }
+            }
+            else if($data['userTaskStatus'] == UserTask::STATUS_APPROVED)//如果审批同意
+            {
+                //查找到任务，让任务通过
+                $mdlTask = Tasks::findOne($mdlUserTask->task_id);
+                //如果是物料的三级审批，并且是采购的审批，要把采购推荐级别的数据保存起来
+                if(isset($data['recommend_purchase'])){
+                    $mdlMdfMtr = ModifyMaterial::findOne($mdlTask->type_id);
+                    $mdlMdfMtr->recommend_purchase = $data['recommend_purchase'];
+                    $mdlMdfMtr->approver1 =0;$mdlMdfMtr->approver2 = 0;$mdlMdfMtr->approver3dcc =0;$mdlMdfMtr->approver3purchase = 0;//这两个不可以为空，要不报错。先添一个
+                    if(!$mdlMdfMtr->save())
+                        return $this->approveFail($transaction,'改变采购推荐级别时出错');
+                }
+                //把所有审批人的状态找出来
+                if($mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER1)
+                {
+                    $appMtr = MaterialApprover::findOne(['material_id'=>$mdlTask->type_id]);//找到一级的审批人
+                    $mdlUserTaskAll = UserTask::find()->select('status,id')->where(['user_id'=>$appMtr->approver1,'task_id'=>$mdlUserTask->task_id])->all();
+                }
+                else if($mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER2)
+                {
+                    $appMtr = MaterialApprover::findOne(['material_id'=>$mdlTask->type_id]);//找到二级的审批人
+                    $mdlUserTaskAll = UserTask::find()->select('status,id')->where(['user_id'=>$appMtr->approver2,'task_id'=>$mdlUserTask->task_id])->all();
+                }
+                else
+                    $mdlUserTaskAll = UserTask::find()->select('status,id')->where(['task_id'=>$mdlUserTask->task_id])->all();
+                //标志是否都审批同意
+                $flagAgree = true;
+                foreach ($mdlUserTaskAll as $val)//如果审批同意，要看看其它审批人是否也都同意
+                {
+                    if($val->id == $mdlUserTask->id)//跳过与自己检测
+                        continue;
+                    else if($val->status != UserTask::STATUS_APPROVED)//如果有一个拒绝就只改自己的审批状态，然后退出
+                    {
+                        $flagAgree = false;
+                        $mdlUserTask->status = UserTask::STATUS_APPROVED;//审批同意
+                        if($mdlUserTask->save())
+                        {
+                            $transaction->commit();
+                            Yii::$app->getSession()->setFlash('warning', "你的审批已成功，等待其它人审批！");
+                            return ['output'=>'', 'message'=>''];
+                        }
+                        else
+                            break;
+                    }
+                }
+                if($flagAgree == true)//说明大家都审批通过
+                {
+                    $mdlTask->status = Tasks::STATUS_APPROVED;
+                    if($mdlTask->type == Tasks::TASK_TYPE_ECR4)//如果是ECN通过了要显示“是否继续ECN”
+                        $mdlTask->status = Tasks::STATUS_CREATE_ECN;
+                    $mdlUserTask->status = UserTask::STATUS_APPROVED;//审批同意
+                    if($mdlUserTask->save()&&$mdlTask->save())//保存状态,然后再保存任务的内容
+                    {
+                        $strCode = '';//任务的名称或编号
+                        if($mdlTask->type == Tasks::TASK_TYPE_MATERIAL)//这是个物料的任务
+                        {
+                            //以下是把元件类型更改成MaterialEncodeRule里的ID
+                            $mdlModifyMaterial = ModifyMaterial::findOne($mdlTask->type_id);
+                            $partType = MaterialEncodeRule::findOne($mdlModifyMaterial->part_type);//厂家信息
+                            //属于哪个元件（2级分类如RES）
+                            $class2 = MaterialEncodeRule::find()->select('lft,rgt,name')->where(['lvl'=>1,'root'=>$partType->root])->
+                            andWhere(['<','lft',$partType->lft])->andWhere(['>','rgt',$partType->rgt])->all()[0];
+
+                            $table = isset(self::$tableName[strtolower($class2->name)])?self::$tableName[strtolower($class2->name)]:'';
+
+                            if($this->syncMaterial($message,$table,$mdlModifyMaterial,
+                                empty($mdlModifyMaterial->material_id)?true:false,$partType->name))
+                            {
+                                $strCode = $mdlModifyMaterial->mfr_part_number;
+                            }
+                            else//如果保存不成功
+                                return $this->approveFail($transaction,$message);
+                        }
+                        else if ($mdlTask->type == Tasks::TASK_TYPE_BOM_UPLOAD)//这个是BOM上传后的审批任务
+                        {
+                            $mdlBom = BomsParent::findOne($mdlTask->type_id);
+                            $mdlBom->status = BomsParent::STATUS_RELEASE;
+                            $mdlBom->type = BomsParent::BOM_TYPE_TRIAL;
+                            $mdlBom->pv_release_time = $curTime;
+                            $mdlBom->pv_effect_date = $curTime;
+                            if(!$mdlBom->save())
+                                return $this->approveFail($transaction,'改变BomsParent表时出错');
+                            $strCode = $mdlBom->material->zc_part_number;
+                        }
+                        else if($mdlTask->type == Tasks::TASK_TYPE_PROJECT_FILE_UPLOAD)//这是个审批项目文件的任务
+                        {
+                            ProjectProcess::figureComplatePre($mdlTask->type_id);
+                            $strCode = ProjectProcess::findOne($mdlTask->type_id)->name;
+                        }
+                        else if($mdlTask->type == Tasks::TASK_TYPE_MTR_FILE_UPLOAD)//这是个物料文件的任务
+                        {
+                            $mdlTemp = MaterialAttachment::findOne($mdlTask->type_id);
+                            $strCode = $mdlTemp->name;
+                            $mdlTemp->modify_material_id = 0;
+                            if(!$mdlTemp->save())
+                                return $this->approveFail($transaction,'保存附件表时出错');
+                        }
+                        else if($mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER1)//物料一级审批
+                        {
+                            $_POST['taskCommit']=1;//是否立即提交
+                            $_POST['taskRemark']='';//备注
+
+                            $approvers=Tasks::getApprovers(Tasks::TASK_TYPE_MTR_APPROVER2,$mdlTask->type_id);
+
+                            $mdlExistUserTask = UserTask::findOne(['user_id'=>$approvers['approvers'][0],'task_id'=>$mdlTask->id]);
+                            if(empty($mdlExistUserTask))//没有这个审批任务，说明不是被退回的
+                            {
+                                if(!UserTask::GenerateUserTask($approvers['approvers'],$mdlTask->id))
+                                    return $this->approveFail($transaction,'保存数据出错，请找下管理员1');
+                            }
+                            else//有这个任务，说明是被退回的。
+                            {
+                                $mdlExistUserTask->remark = '';
+                                $mdlExistUserTask->approve_able = 1;
+                                $mdlExistUserTask->status = UserTask::STATUS_UNAPPROVE;
+                                if(!$mdlExistUserTask->save())
+                                    return $this->approveFail($transaction,'保存审批表时出错，请找下管理员4');
+                            }
+
+                            $mdlTask->type = Tasks::TASK_TYPE_MTR_APPROVER2;
+                            $mdlTask->status = Tasks::STATUS_COMMITED;
+                            if($mdlTask->name == ModifyMaterialController::MATERIAL_CREATE1)
+                                $mdlTask->name = ModifyMaterialController::MATERIAL_CREATE2;
+                            else
+                                $mdlTask->name = ModifyMaterialController::MATERIAL_UPDATE2;
+                            if(!$mdlTask->save())
+                                return $this->approveFail($transaction,'保存数据出错，请找下管理员2');
+                            CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$approvers['mail'],$mdlTask->name,
+                                $approvers['code'],'user-task/index',$mdlTask->user->username);
+
+                            $transaction->commit();
+                            Yii::$app->getSession()->setFlash('success', "审批成功，任务跳到二级审批");
+                            return ['output'=>'', 'message'=>''];
+                        }
+                        else if($mdlTask->type == Tasks::TASK_TYPE_MTR_APPROVER2)//物料二级审批
+                        {
+                            $_POST['taskCommit']=1;//是否立即提交
+                            $_POST['taskRemark']='';//备注
+                            $approvers=Tasks::getApprovers(Tasks::TASK_TYPE_MATERIAL,$mdlTask->type_id);
+                            $mdlExistUserTask = UserTask::findOne(['user_id'=>$approvers['approvers'][0],'task_id'=>$mdlTask->id]);
+                            if(empty($mdlExistUserTask))//没有这个审批任务，说明不是被退回的
+                            {
+                                if(!UserTask::GenerateUserTask($approvers['approvers'],$mdlTask->id))
+                                    return $this->approveFail($transaction,'保存数据出错，请找下管理员1');
+                            }
+                            else//有这个任务，说明是被退回的。
+                            {
+                                $mdlExistUserTask->remark = '';
+                                $mdlExistUserTask->approve_able = 1;
+                                $mdlExistUserTask->status = UserTask::STATUS_UNAPPROVE;
+                                if(!UserTask::updateAll(['remark'=>'','approve_able'=>1,'status'=>UserTask::STATUS_UNAPPROVE],
+                                    ['approve_able'=>0,'task_id'=>$mdlTask->id]))
+                                    return $this->approveFail($transaction,'保存审批表时出错，请找下管理员4');
+                            }
+
+                            $mdlTask->type = Tasks::TASK_TYPE_MATERIAL;
+                            $mdlTask->status = Tasks::STATUS_COMMITED;
+                            if($mdlTask->name == ModifyMaterialController::MATERIAL_CREATE2)
+                                $mdlTask->name = ModifyMaterialController::MATERIAL_CREATE3;
+                            else
+                                $mdlTask->name = ModifyMaterialController::MATERIAL_UPDATE3;
+                            if(!$mdlTask->save())
+                                return $this->approveFail($transaction,'保存数据出错，请找下管理员2');
+
+                            CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$approvers['mail'],$mdlTask->name,
+                                $approvers['code'],'user-task/index',$mdlTask->user->username);
+                            $transaction->commit();
+                            Yii::$app->getSession()->setFlash('success', "审批成功，任务跳到三级审批");
+                            return ['output'=>'', 'message'=>''];
+                        }
+                        else if($mdlTask->type == Tasks::TASK_TYPE_ECR1||$mdlTask->type == Tasks::TASK_TYPE_ECR2||
+                            $mdlTask->type == Tasks::TASK_TYPE_ECR3)
+                        {
+                            $strCode = Ecr::approvePass($mdlTask);
+                            if($strCode!=-1)//成功
+                            {
+                                $transaction->commit();
+                                return ['output'=>'', 'message'=>''];
+                            }
+                            else
+                                return $this->approveFail($transaction,'保存数据出错，请找下管理员2');
+                        }
+                        else if($mdlTask->type == Tasks::TASK_TYPE_ECR4)
+                        {
+                            $strCode = Ecr::approvePass($mdlTask);
+                            if($strCode==-1)
+                                return $this->approveFail($transaction,'保存数据出错，请找下管理员2');
+                        }
+                        else if($mdlTask->type == Tasks::TASK_TYPE_ECN1||$mdlTask->type == Tasks::TASK_TYPE_ECN2||
+                            $mdlTask->type == Tasks::TASK_TYPE_ECN3)
+                        {
+                            $strCode = Ecn::approvePass($mdlTask);
+                            if($strCode!=-1)//成功
+                            {
+                                $transaction->commit();
+                                return ['output'=>'', 'message'=>''];
+                            }
+                            else
+                                return $this->approveFail($transaction,'保存数据出错，请找下管理员2');
+                        }
+                        else if($mdlTask->type == Tasks::TASK_TYPE_ECN4)
+                        {
+                            $strCode = Ecn::approvePass($mdlTask);
+                            if($strCode==-1)
+                                return $this->approveFail($transaction,'保存数据出错，请找下管理员2');
+                            if(!ExtBomsParent::approveEcn($mdlTask->type_id))
+                                return $this->approveFail($transaction,'改变ECN表时出错');
+                        }
+
+                        //保存成功后提交
+                        $strAddr = $mdlTask->user->email;
+                        CommonFunc::sendMail(CommonFunc::APPROVE_PASS,$strAddr,$mdlTask->name,$strCode,'tasks/index');
+                        $transaction->commit();
+                        Yii::$app->getSession()->setFlash('success', "审批成功，任务已经通过");
+                        return ['output'=>'', 'message'=>''];
+                    }
+
+
+                    else
+                        return $this->approveFail($transaction,'保存审批表和任务表时出错');
+                }
+            }
+        }
+    }
+
+    /**
+     * 返回审批失败
+     */
+    public function approveFail($transaction,$message)
+    {
+        $transaction->rollBack();//如果 没成功回滚
+        Yii::$app->getSession()->setFlash('error', "审批失败");
+        return ['output'=>'', 'message'=>$message];
+    }
+
+    /** 同步数据到研发库里
+     * @param $tableName:同步到哪个研发数据库,如果是空字符串的话，说明是结构的
+     * @param $model:物料数据
+     * @param $isCreate:是否是新建
+     * @param $partTypeName:分类的名字
+     * @return bool:是否保存成功，到时事务要用到返回值
+     */
+    public function syncMaterial(&$message,$tableName,$mdlModifyMaterial,$isCreate,$partTypeName)
+    {
+        $className = $tableName;//插入的是哪个表
+        $classNcName = $className."Nc";
+        $oldIsFirstMfr = 0;//声明更新前的’是否是一供‘的值
+        //更新还是插入
+        if($isCreate)//insert
+        {
+            if($tableName != '')//如果是结构的就不用向研发库里导入
+            {
+                $hardwareModel = new $className();
+                $hardwareNcModel = new $classNcName();
+            }
+            $model = new Materials();
+        }
+        else//update
+        {
+            $model = Materials::findOne($mdlModifyMaterial->material_id);
+            $oldIsFirstMfr = $model->is_first_mfr;
+            if($tableName != '')//如果是结构的就不用向研发库里导入
+            {
+                $mfrTemp = ' ';
+                if(!empty($model->manufacturer))
+                    $mfrTemp=MaterialEncodeRule::findOne($model->manufacturer)->name;
+                $hardwareModel = $className::findOne(['Mfr_part_number'=>$model->mfr_part_number,
+                    'Manufacturer'=>$mfrTemp]);
+                $hardwareNcModel = $classNcName::findOne(['Mfr_part_number'=>$model->mfr_part_number,
+                    'Manufacturer'=>$mfrTemp]);
+            }
+        }
+
+        if(!$this->commitMaterials($isCreate,$model,$mdlModifyMaterial))
+        {
+            $message = '提交到物料出错';
+            return false;
+        }
+        if($tableName == '')//如果是结构的就结束了！
+            return true;
+        if($isCreate)
+        {
+            if($mdlModifyMaterial->is_first_mfr == 0)//新增时要看是不是在一供位置出现
+                return true;
+        }
+        else//如果是更新，根据是不是一供处理研发库
+        {
+            //更新前的值：0不是一供;1是一供     更新后的值：0不是一供;1是一供
+            if($oldIsFirstMfr==0&&$mdlModifyMaterial->is_first_mfr == 0)
+                return true;
+            else if($oldIsFirstMfr==0&&$mdlModifyMaterial->is_first_mfr == 1)
+            {
+                $hardwareModel = new $className();
+                $hardwareNcModel = new $classNcName();
+            }
+            else if($oldIsFirstMfr==1&&$mdlModifyMaterial->is_first_mfr == 0)
+            {
+                if(empty($hardwareModel)||empty($hardwareNcModel))
+                {
+                    $message = '研发库里不存在这科料';
+                    return false;
+                }
+                if($hardwareModel->delete()&&$hardwareNcModel->delete())
+                    return true;
+                else
+                {
+                    $message = '同步到研发库出错';
+                    return false;
+                }
+            }
+        }
+        //提取二三四供的信息
+        $data234Mfr = [2=>['mfrPartNo'=>'','zcPartNo'=>'','mfr'=>'','des'=>''],3=>['mfrPartNo'=>'','zcPartNo'=>'','mfr'=>'','des'=>''],
+            4=>['mfrPartNo'=>'','zcPartNo'=>'','mfr'=>'','des'=>'']];
+
+        if(!empty($model->manufacturer2_id))
+        {
+            $dataTemp = Materials::findOne($model->manufacturer2_id);
+            $data234Mfr[2]['mfrPartNo']=$dataTemp->mfr_part_number;
+            $data234Mfr[2]['zcPartNo']=$dataTemp->zc_part_number;
+            $data234Mfr[2]['des']=$dataTemp->description;
+            $data234Mfr[2]['mfr']=$dataTemp->manufacturer1->name;
+        }
+        if(!empty($model->manufacturer3_id))
+        {
+            $dataTemp = Materials::findOne($model->manufacturer3_id);
+            $data234Mfr[3]['mfrPartNo']=$dataTemp->mfr_part_number;
+            $data234Mfr[3]['zcPartNo']=$dataTemp->zc_part_number;
+            $data234Mfr[3]['des']=$dataTemp->description;
+            $data234Mfr[3]['mfr']=$dataTemp->manufacturer1->name;
+        }
+        if(!empty($model->manufacturer4_id))
+        {
+            $dataTemp = Materials::findOne($model->manufacturer4_id);
+            $data234Mfr[4]['mfrPartNo']=$dataTemp->mfr_part_number;
+            $data234Mfr[4]['zcPartNo']=$dataTemp->zc_part_number;
+            $data234Mfr[4]['des']=$dataTemp->description;
+            $data234Mfr[4]['mfr']=$dataTemp->manufacturer1->name;
+        }
+        $Automotive = '';
+        if($model->vehicle_standard != 3&&isset($model->vehicle_standard))
+            $Automotive = ModifyMaterial::VEHICLE_STANDARD[$model->vehicle_standard];
+
+        //如果选为禁用，要让原理图路径不对
+
+        $schematicPart = $model->schematic_part;
+        if($model->recommend_purchase == 3)//选的是禁用的话，把开头的E去掉
+            $schematicPart = substr($schematicPart,1);
+
+        //同步不NC的数据
+        $hardwareModel->setAttributes([
+            "Assy_Level"=>$model->assy_level,
+            "Purchase_Level"=>$model->purchase_level,
+            "Mfr_part_number"=>$model->mfr_part_number,
+            "Description"=>$model->description,
+            "Allegro_PCB_Footprint"=>$model->pcb_footprint,
+            "Manufacturer"=>empty($model->manufacturer)?" ":MaterialEncodeRule::findOne($model->manufacturer)->name,
+            "zc_part_number"=>$model->zc_part_number,
+            "2Mfr_part_number"=>$data234Mfr[2]['mfrPartNo'],
+            "2zc_part_number"=>$data234Mfr[2]['zcPartNo'],
+            "2Manufacturer"=>$data234Mfr[2]['mfr'],
+            "2Description"=>$data234Mfr[2]['des'],
+            "3Mfr_part_number"=>$data234Mfr[3]['mfrPartNo'],
+            "3zc_part_number"=>$data234Mfr[3]['zcPartNo'],
+            "3Manufacturer"=>$data234Mfr[3]['mfr'],
+            "3Description"=>$data234Mfr[3]['des'],
+            "4Mfr_part_number"=>$data234Mfr[4]['mfrPartNo'],
+            "4zc_part_number"=>$data234Mfr[4]['zcPartNo'],
+            "4Manufacturer"=>$data234Mfr[4]['mfr'],
+            "4Description"=>$data234Mfr[4]['des'],
+            "Version"=>date("Y-m-d H:i:s",time()),
+            "Automotive"=>$Automotive,
+            "Part_type"=>$partTypeName,
+            "Value"=>$model->value,
+            "Schematic_part"=>$schematicPart,
+//            "Datasheet"=>"",
+//            "Price"=>$model->price,
+            "recommend_purchase"=>ModifyMaterial::RECOMMEND_PURCHASE[$model->recommend_purchase],
+            "minimum_packing_quantity"=>$model->minimum_packing_quantity,
+            "lead_time"=>$model->lead_time,
+        ]);
+        if(!$hardwareModel->save())
+        {
+            $message = '同步到研发库出错';
+            return false;
+        }
+
+        //同步NC数据
+        $hardwareNcModel->setAttributes([
+            "Assy_Level"=>$model->assy_level,
+            "Purchase_Level"=>$model->purchase_level,
+            "Mfr_part_number"=>$model->mfr_part_number,
+            "Description"=>$model->description,
+            "Allegro_PCB_Footprint"=>$model->pcb_footprint,
+            "Manufacturer"=>empty($model->manufacturer)?" ":MaterialEncodeRule::findOne($model->manufacturer)->name,
+            "zc_part_number"=>$model->zc_part_number,
+            "2Mfr_part_number"=>$data234Mfr[2]['mfrPartNo'],
+            "2zc_part_number"=>$data234Mfr[2]['zcPartNo'],
+            "2Manufacturer"=>$data234Mfr[2]['mfr'],
+            "2Description"=>$data234Mfr[2]['des'],
+            "3Mfr_part_number"=>$data234Mfr[3]['mfrPartNo'],
+            "3zc_part_number"=>$data234Mfr[3]['zcPartNo'],
+            "3Manufacturer"=>$data234Mfr[3]['mfr'],
+            "3Description"=>$data234Mfr[3]['des'],
+            "4Mfr_part_number"=>$data234Mfr[4]['mfrPartNo'],
+            "4zc_part_number"=>$data234Mfr[4]['zcPartNo'],
+            "4Manufacturer"=>$data234Mfr[4]['mfr'],
+            "4Description"=>$data234Mfr[4]['des'],
+            "Version"=>date("Y-m-d H:i:s",time()),
+            "Automotive"=>$Automotive,
+            "Part_type"=>$partTypeName,
+            "Value"=>"NC(".$model->value.")",
+            "Schematic_part"=>$schematicPart,
+//            "Datasheet"=>$model->datasheet,
+//            "Price"=>$model->price,
+            "recommend_purchase"=>ModifyMaterial::RECOMMEND_PURCHASE[$model->recommend_purchase],
+            "minimum_packing_quantity"=>$model->minimum_packing_quantity,
+            "lead_time"=>$model->lead_time,
+        ]);
+        if(!$hardwareNcModel->save())
+        {
+            $message = '同步到研发NC库出错';
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 中间物料库的数据提交到大物料库上（如：ModifyMaterial(1)-->>Materials(1)）
+     */
+    public function commitMaterials($isCreate,$material,$mdfMaterial)
+    {
+        $material->assy_level = $mdfMaterial->assy_level;
+        $material->purchase_level = $mdfMaterial->purchase_level;
+        $material->mfr_part_number = $mdfMaterial->mfr_part_number;
+        $material->description = $mdfMaterial->description;
+        $material->pcb_footprint = $mdfMaterial->pcb_footprint;
+        $material->manufacturer = $mdfMaterial->manufacturer;
+        $material->zc_part_number = $mdfMaterial->zc_part_number;
+        $material->date_entered = $mdfMaterial->date_entered;
+        $material->vehicle_standard = $mdfMaterial->vehicle_standard;
+        $material->part_type = $mdfMaterial->part_type;
+        $material->value = $mdfMaterial->value;
+        $material->schematic_part = $mdfMaterial->schematic_part;
+        $material->price = $mdfMaterial->price;
+        $material->recommend_purchase = $mdfMaterial->recommend_purchase;
+        $material->minimum_packing_quantity = $mdfMaterial->minimum_packing_quantity;
+        $material->lead_time = $mdfMaterial->lead_time;
+        $material->manufacturer2_id = $mdfMaterial->manufacturer2_id;
+        $material->manufacturer3_id = $mdfMaterial->manufacturer3_id;
+        $material->manufacturer4_id = $mdfMaterial->manufacturer4_id;
+        $material->material_id = $mdfMaterial->material_id;
+        $material->is_first_mfr = $mdfMaterial->is_first_mfr;
+        $material->remark = $mdfMaterial->remark;
+        $material->car_number = $mdfMaterial->car_number;
+        $material->part_name = $mdfMaterial->part_name;
+        $material->unit = $mdfMaterial->unit;
+        if(!empty($mdfMaterial->parent_id))
+            $material->parent_id = $mdfMaterial->parent_id;
+        if($material->save()) {
+            if(empty($mdfMaterial->parent_id)){
+                $material->parent_id = $material->material_id;
+                if(!$material->save()){
+                    return false;
+                }
+            }
+            //把新增的，要把material_attachment表的物料ID加上数据
+            MaterialAttachment::updateAll(['material_id'=>$material->material_id],['modify_material_id'=>$mdfMaterial->id]);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 发送审批邮件
+     *
+     */
+//    static function sendEmail($toUserId,$taskType,$taskName,$result)
+//    {
+//        if($result == Tasks::STATUS_REJECTED)
+//        {
+//            Yii::$app->mailer->compose(['html' => 'approveReject-html'],
+//                ['taskType'=>$taskType,'taskName'=>$taskName,'link'=>'tasks/index','author'=>1])
+//                ->setFrom([Yii::$app->params['supportEmail'] => Yii::$app->name . ' robot'])
+//                ->setTo(User::findOne($toUserId)->email)
+//                ->setSubject('通知——来自' . Yii::$app->name)
+//                ->send();
+//            $arr = TasksController::$usersApprove;
+//            array_splice($arr,array_search(Yii::$app->user->id,$arr),1);
+//            $users = [];
+//            foreach ($arr as $id) {
+//                $model = User::findOne($id);
+//                array_push($users, $model->email);
+//            }
+//
+//            Yii::$app->mailer->compose(['html' => 'approveReject-html'],
+//                ['taskType'=>$taskType,'taskName'=>$taskName,'link'=>'tasks/index','author'=>0])
+//                ->setFrom([Yii::$app->params['supportEmail'] => Yii::$app->name . ' robot'])
+//                ->setTo($users)
+//                ->setSubject('通知——来自' . Yii::$app->name)
+//                ->send();
+//        }
+//        else if($result == Tasks::STATUS_APPROVED)
+//        {
+//            Yii::$app->mailer->compose(['html' => 'approvePass-html'], ['taskType'=>$taskType,'taskName'=>$taskName,'link'=>'tasks/index'])
+//                ->setFrom([Yii::$app->params['supportEmail'] => Yii::$app->name . ' robot'])
+//                ->setTo(User::findOne($toUserId)->email)
+//                ->setSubject('通知——来自' . Yii::$app->name)
+//                ->send();
+//        }
+//    }
+
+
+}

@@ -1,0 +1,109 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+
+/**
+ * This is the model class for table "ecn".
+ *
+ * @property integer $id
+ * @property string $serial_number
+ * @property string $reason
+ * @property string $detail
+ * @property string $module
+ * @property integer $created_at
+ * @property integer $updated_at
+ * @property integer $change_now
+ * @property integer $affect_stock
+ * @property string $remark
+ * @property integer $ecr_id
+ */
+class Ecn extends EcrAndEcn
+{
+
+    //以下变量为了联合审批人表用,type=3的都是ECN的;
+    public $type = Tasks::TASK_TYPE_ECN;
+
+    //库存处理
+    const STOCK_PROCESSING = [0=>'报废',1=>'移作他用',2=>'用完为止'];
+
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'ecn';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['serial_number', 'reason', 'detail', 'module', 'project_process','created_at', 'updated_at', 'change_now', 'affect_stock',
+                'remark', 'ecr_id','approver1','approver2','approver3','approver4','approver5','approver6'], 'required'],
+            [['reason', 'detail'], 'string'],
+            [['created_at', 'updated_at', 'change_now', 'affect_stock', 'ecr_id'], 'integer'],
+            [['serial_number'], 'string', 'max' => 20],
+            [['project_process'], 'string', 'max' => 30],
+            [['module', 'remark'], 'string', 'max' => 255],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        $arr = parent::attributeLabels();
+        return array_merge($arr,[
+            'id' => Yii::t('material', 'ID'),
+            'serial_number' => Yii::t('material', '编号'),
+            'reason' => Yii::t('material', '变更原因'),
+            'detail' => Yii::t('material', '变更内容'),
+            'module' => Yii::t('material', '项目机种名称'),
+            'project_process' => Yii::t('material', '项目阶段'),
+            'created_at' => Yii::t('material', '创建时间'),
+            'updated_at' => Yii::t('material', '更新时间'),
+            'change_now' => Yii::t('material', '是否立即变更'),
+            'affect_stock' => Yii::t('material', '是否影响库存产品'),
+            'remark' => Yii::t('material', '备注'),
+            'ecr_id' => Yii::t('material', 'ecr编号'),
+        ]);
+    }
+
+    /**
+     * 新建时分配数据
+     */
+    public function assignEcrDate($EcrId)
+    {
+        $model = ecr::findOne($EcrId);
+        $this->ecr_id = $EcrId;
+        $this->reason = $model->reason;
+        $this->detail = $model->detail;
+        $this->module = $model->module;
+        $this->project_process = $model->project_process;
+        //审批人
+        $model->assignApproverData();
+        $this->approver1 = $model->approver1;
+        $this->approver2 = $model->approver2;
+        $this->approver3 = $model->approver3;
+        $this->approver4 = $model->approver4;
+        $this->approver5 = $model->approver5;
+    }
+
+
+
+    //关联变更集合表
+    public function getEcnChangeSet()
+    {
+        return $this->hasMany(EcnChangeSet::className(),['ecn_id'=>'id']);
+    }
+
+
+
+}

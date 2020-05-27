@@ -1,0 +1,183 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\ActiveForm;
+use yii\helpers\ArrayHelper;
+use yii\helpers\Url;
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\BomsSearch */
+/* @var $form yii\widgets\ActiveForm */
+?>
+
+<p><button type="button" class="btn btn-primary toggle">数据列显示/隐藏</button></p>
+<div class="boms-search hide">
+
+    <?php $form = ActiveForm::begin([
+        'action' => ['index'],
+        'method' => 'get',
+    ]); ?>
+
+    <!--?= $form->field($model, 'project_name')->dropDownList(ArrayHelper::map($projects, 'name', 'name'),
+        [
+            'prompt'=>'请选择项目名称 ...',
+            //  'id' => 'select_name',
+            'onchange' => '
+                        $.ajax({
+                            type: "GET",
+                            url: "'.Url::to(["/boms/search?action=getmilestoneOption"], true).'",
+                            data: {project_name:$(this).val()},
+                            success: function(data) {
+                                $("#bomssearch-milestone").empty();
+                                $("#bomssearch-module_name").empty();
+                                if (data != "null") {
+                                    var data = $.parseJSON(data);
+                                    option = \'<option value="">请选择里程碑 ...</option>\';
+                                    $("#bomssearch-milestone").append(option);
+                                    $.each(data, function() {
+                                        option = \'<option value="\' + this.milestone + \'">\' + this.milestone + \'</option>\';
+                                        $("#bomssearch-milestone").append(option);
+                                    });
+                                }
+                            },
+                            timeout: 3000,
+                            error: function(){
+                                alert("错误：请求超时无响应");
+                            }
+                        });'
+        ]
+    )->label('项目名称') ?-->
+
+    <!--?= $form->field($model, 'milestone')->dropDownList([],
+        [
+            'onchange' => '
+                        $.ajax({
+                            type: "GET",
+                            url: "'.Url::to(["/boms/search?action=getmodulesOption"], true).'",
+                            data: {project_name:$("#bomssearch-project_name").val(), milestone:$(this).val()},
+                            success: function(data) {
+                                $("#bomssearch-module_name").empty();
+                                if (data != "null") {
+                                    var data = $.parseJSON(data);
+                                    option = \'<option value="">请选择模块 ...</option>\';
+                                    $("#bomssearch-module_name").append(option);
+                                    $.each(data, function() {
+                                        option = \'<option value="\' + this.name + \'">\' + this.name + \'</option>\';
+                                        $("#bomssearch-module_name").append(option);
+                                    });
+                                }
+                            },
+                            timeout: 3000,
+                            error: function(){
+                                alert("错误：请求超时无响应");
+                            }
+                        });'
+        ]
+    ) ?-->
+
+    <!--?= $form->field($model, 'module_name')->dropDownList([])->label('模块') ?-->
+
+    <?= $form->field($model, 'project_name')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'milestone')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'module_name')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'assy_level')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'purchase_level')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'part_no')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'part_name')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'description')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'pcb_footprint')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'qty')->hiddenInput()->label(false) ?>
+
+    <?php  echo $form->field($model, 'ref_no')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'supplier_name')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'second_source_part_no')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'second_source_supplier_name')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'third_source_part_no')->hiddenInput()->label(false) ?>
+
+    <?= $form->field($model, 'third_source_supplier_name')->hiddenInput()->label(false) ?>
+
+    <?php  echo $form->field($model, 'remark')->hiddenInput()->label(false) ?>
+
+    <?php // echo $form->field($model, 'date_entered') ?>
+
+
+    <ul class="list-inline">
+      <li>
+        <?= $form->field($model, 'assy_level_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'purchase_level_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'part_no_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'part_name_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'description_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'pcb_footprint_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'qty_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'ref_no_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'supplier_name_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'second_source_part_no_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'second_source_supplier_name_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'third_source_part_no_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'third_source_supplier_name_toggle')->checkbox([],true) ?>
+      </li>
+      <li>
+        <?= $form->field($model, 'remark_toggle')->checkbox([],true) ?>
+      </li>
+    </ul>
+
+    <div class="form-group">
+        <?= Html::submitButton(Yii::t('common', 'Submit'), ['class' => 'btn btn-primary']) ?>
+        <?= Html::resetButton(Yii::t('common', 'Reset'), ['class' => 'btn btn-default']) ?>
+    </div>
+
+    <?php ActiveForm::end(); ?>
+
+</div>
+<?php
+$js = <<<JS
+  $(".toggle").click(function(){
+    if ($(".boms-search").hasClass("hide")) {
+        $(".boms-search").hide();
+        $(".boms-search").removeClass("hide");
+        $(".boms-search").show("slow");
+    }
+    else
+        $(".boms-search").toggle("slow");
+  });
+JS;
+$this->registerJs($js);
+?>

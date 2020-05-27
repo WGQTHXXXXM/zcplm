@@ -1,0 +1,55 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "brand_list".
+ *
+ * @property integer $id
+ * @property string $brand
+ *
+ * @property ClassBrandList[] $classBrandLists
+ */
+class BrandList extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'brand_list';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['brand'], 'required'],
+            [['brand'], 'string', 'max' => 32],
+            [['brand'], 'unique'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('common', 'ID'),
+            'brand' => Yii::t('common', 'Brand'),
+        ];
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getClassBrandLists()
+    {
+        return $this->hasMany(ClassBrandList::className(), ['brand_id' => 'id']);
+    }
+}

@@ -1,0 +1,211 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use backend\models\User;
+use common\components\CommonFunc;
+use frontend\controllers\TasksController;
+
+/**
+ * This is the model class for table "tasks".
+ *
+ * @property integer $id
+ * @property string $name
+ * @property integer $status
+ * @property string $remark
+ * @property integer $type
+ * @property integer $type_id
+ * @property integer $date
+ * @property integer $user_id
+ */
+class Tasks extends \yii\db\ActiveRecord
+{
+    /*提交的状态*/
+    const STATUS_COMMIT = ['0'=>'待提交','1'=>'已提交','2'=>'被退回','3'=>'已通过','4'=>'是否继续ECN'];
+    const STATUS_UNCOMMIT = 0;
+    const STATUS_COMMITED = 1;
+    const STATUS_REJECTED = 2;
+    const STATUS_APPROVED = 3;
+    const STATUS_CREATE_ECN = 4;
+
+    /*********任务类型********/
+    const TASK_TYPE_MATERIAL = 1;//物料
+    const TASK_TYPE_ECR = 2;//ECR
+    const TASK_TYPE_ECN = 3;//ECN
+
+
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'tasks';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['status', 'type', 'type_id', 'date', 'user_id'], 'required'],
+            [['status', 'type', 'type_id', 'date', 'user_id'], 'integer'],
+            [['name'], 'string', 'max' => 50],
+            [['remark'], 'string', 'max' => 255],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'name' => Yii::t('material', '任务名称'),
+            'status' => Yii::t('material', '任务状态'),
+            'remark' => Yii::t('material', '备注'),
+            'type' => Yii::t('material', '哪种任务'),
+            'type_id' => Yii::t('material', '哪种类型的ID'),
+            'date' => Yii::t('material', '更新时间'),
+            'user_id' => Yii::t('material', '创建者ID'),
+        ];
+    }
+
+    /**新建一个任务
+     * @param $typeDetail:对应的任务类型（如是物料还是ECR啥的）
+     * @param $idDetail：对应该任务的内容id号（如物料的id,ECR的id）
+     * @param $taskName：是新增还是更新啥东西
+     * @param int $status：是不是立即提交
+     * @param string $remark：备注
+     * @return bool：返回任务新建是否成功
+     */
+    public static function generateTask($typeDetail,$idDetail,$taskName,$status=self::STATUS_UNCOMMIT ,$approverIds=[],$remark='')
+    {
+        //生成任务
+        $Author = Yii::$app->user->id;//创建者
+        $task = new Tasks();
+        $task->name = $taskName;
+        $task->status=$status;
+        $task->remark = $remark;
+        //如果是立即提交
+        if($status == self::STATUS_COMMITED)//如果是立即提交的要改数据
+        {
+            $task->status=$status;
+            $task->remark = $remark;
+        }
+        $task->type = $typeDetail;
+        $task->type_id = $idDetail;
+        $task->date = time();
+        $task->user_id = $Author;
+        //如果任务保存成功再生成用户任务表
+        if($task->save())
+        {
+            if($status == self::STATUS_COMMITED)//如果是立即提交的要加审批
+            {
+                $mailAddr =[];
+                foreach ($approverIds as $userId)//生成审批任务
+                {
+                    $userTask = new UserTask();
+                    $userTask->task_id = $task->id;
+                    $userTask->user_id = $userId;
+                    $mailAddr[]= User::findOne($userId)->email;
+                    $userTask->updated_at = time();
+                    $userTask->status = 0;
+                    if(!$userTask->save())
+                        return false;
+                }
+                //发邮件
+                $taskCode = '';
+                if($typeDetail == self::TASK_TYPE_ECR)
+                    $taskCode = $task->ecr->serial_number;
+                else if($typeDetail == self::TASK_TYPE_MATERIAL)
+                    $taskCode = $task->modifyMaterial->mfr_part_number;
+                else if($typeDetail == self::TASK_TYPE_ECN)
+                    $taskCode = $task->ecn->serial_number;
+                CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$mailAddr,$task->name,$taskCode,'user_task/index');
+            }
+            return true;
+        }
+        else
+            return false;
+
+    }
+
+    /**
+     * @param $type:任务类型
+     * @param $typeId:任务关联表的id号
+     * @param $isReject:是否是退回邮件，然后审批人里把当前
+     * @return array:返回审批人数组ID,审批人邮箱，审批的任务名
+     */
+    public static function getApprovers($type,$typeId,$isReject=false,$authorId=null)
+    {
+        $data = [];
+        if($type == Tasks::TASK_TYPE_MATERIAL)
+        {
+            $data['approvers'] = TasksController::$usersApprove;
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['mail'] = User::find()->select('email')->where(['in','id',$data['approvers']])->column();
+            $data['code'] = ModifyMaterial::findOne($typeId)->mfr_part_number;
+        }
+        else if($type == Tasks::TASK_TYPE_ECR)
+        {
+            $data['approvers'] =  EcApproval::find()->select('user_id')->where(['type'=>0,'ec_id'=>$typeId])->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['mail'] = User::find()->select('email')->where(['in','id',$data['approvers']])->column();
+            $data['code'] = Ecr::findOne($typeId)->serial_number;
+        }
+        else if($type == Tasks::TASK_TYPE_ECN)
+        {
+            $data['approvers'] =  EcApproval::find()->select('user_id')->where(['type'=>1,'ec_id'=>$typeId])->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['mail'] = User::find()->select('email')->where(['in','id',$data['approvers']])->column();
+            $data['code'] = Ecn::findOne($typeId)->serial_number;
+        }
+        if($isReject)
+            $data['mail']['author'] = User::findOne($authorId)->email;
+
+        return $data;
+    }
+
+
+
+////////////////////以下是关联表//////////////////////////////
+
+    //关联物料表
+    public function getModifyMaterial()
+    {
+        return $this->hasOne(ModifyMaterial::className(),['id'=>'type_id']);
+    }
+
+    //关联ECR表
+    public function getEcr()
+    {
+        return $this->hasOne(Ecr::className(),['id'=>'type_id']);
+    }
+
+    //关联ECN表
+    public function getEcn()
+    {
+        return $this->hasOne(Ecn::className(),['id'=>'type_id']);
+    }
+
+    //关联审批表
+    public function getUserTask()
+    {
+        return $this->hasOne(UserTask::className(),['task_id'=>'id']);
+    }
+
+
+    //关联用户表
+    public function getUser()
+    {
+        return $this->hasOne(User::className(),['id'=>'user_id']);
+    }
+
+}

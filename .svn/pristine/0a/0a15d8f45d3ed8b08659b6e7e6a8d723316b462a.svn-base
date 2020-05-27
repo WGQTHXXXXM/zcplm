@@ -1,0 +1,55 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "type_list".
+ *
+ * @property integer $id
+ * @property string $type
+ *
+ * @property ClassList[] $classLists
+ */
+class TypeList extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'type_list';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['type'], 'required'],
+            [['type'], 'string', 'max' => 32],
+            [['type'], 'unique'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('common', 'ID'),
+            'type' => Yii::t('common', 'Type'),
+        ];
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getClassLists()
+    {
+        return $this->hasMany(ClassList::className(), ['type_id' => 'id']);
+    }
+}

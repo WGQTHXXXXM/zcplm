@@ -1,0 +1,59 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\DetailView;
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\ProjectAttachment */
+
+$this->title = $model->attachment->name;
+$this->params['breadcrumbs'][] = ['label' => '项目管理查看', 'url' => ['/projects/project-manage-view','id'=>$model->attachment->root]];
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<h1>
+    <?php
+    echo $this->title;
+    ?>
+
+</h1>
+
+<div class="project-attachment-view">
+
+
+    <br><br>
+    <div class="row">
+        <div class="col-md-6">
+            <?= DetailView::widget([
+                'model' => $model,
+                'attributes' => [
+                    [
+                        'attribute'=>'name',
+                        'format' => 'raw',
+                        'value' => Html::a($model->name, ['ecr/download', 'pathFile' => $model->path, 'filename' => $model->name])
+                    ],
+                    [
+                        'attribute'=>'file_id',
+                        'value'=>$model->attachment->name
+                    ],
+                    [
+                        'attribute'=>'created_at',
+                        'value'=>date('Y-m-d  H:i:s',$model->created_at)
+                    ],
+                    [
+                        'attribute'=>'updated_at',
+                        'value'=>date('Y-m-d  H:i:s',$model->updated_at)
+                    ],
+                    [
+                        'attribute'=>'user_id',
+                        'value'=>$model->user->username
+                    ],
+                ],
+            ]) ?>
+        </div>
+    </div>
+
+</div>
+<?php
+require('../views/layouts/view-approve.php');
+
+?>

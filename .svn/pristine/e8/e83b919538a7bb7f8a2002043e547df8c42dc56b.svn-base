@@ -1,0 +1,493 @@
+<?php
+
+namespace frontend\controllers;
+
+use backend\models\Department;
+use common\components\CommonFunc;
+use common\models\User;
+use frontend\models\DloadPmsDepartment;
+use frontend\models\DloadPmsUser;
+use frontend\models\QsmApprover;
+use frontend\models\QsmAttachment;
+use frontend\models\Tasks;
+use frontend\models\UserTask;
+use Yii;
+use frontend\models\QualitySystemManage;
+use frontend\models\QualitySystemManageSearch;
+use yii\data\ActiveDataProvider;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+
+/**
+ * QualitySystemManageController implements the CRUD actions for QualitySystemManage model.
+ */
+class QualitySystemManageController extends Controller
+{
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all QualitySystemManage models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+        $searchModel = new QualitySystemManageSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+        $arrDepartment= Department::getDepartmentAll();
+
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+            'arrDepartment'=>$arrDepartment,
+        ]);
+    }
+
+    /**
+     * Displays a single QualitySystemManage model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        $mdlQsm = QualitySystemManage::findOne($id);
+
+
+        $mdlMaxVsnA = QsmAttachment::find()->where(['qsm_id'=>$id])->orderBy(['version'=>SORT_DESC])->one();
+
+        $mdlApprove = [];
+        if (!empty($mdlMaxVsnA)){
+            $mdlApprove = new ActiveDataProvider(['query'=>UserTask::find()->alias('ut')
+                ->rightJoin('tasks','tasks.id=ut.task_id')
+                ->where(['tasks.type'=>Tasks::TASK_TYPE_QSM,'tasks.type_id'=>$mdlMaxVsnA->id])
+            ]);
+        }
+
+        return $this->render('view', [
+            'mdlQsm' => $mdlQsm,
+            'mdlMaxVsnA'=>$mdlMaxVsnA,
+            'mdlApprove'=>$mdlApprove
+        ]);
+    }
+
+    /**
+     * Creates a new QualitySystemManage model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate()
+    {
+        $mdlQsm = new QualitySystemManage();
+        $mdlQsmApprove = new QsmApprover();
+        $mdlPmsDepartment = new DloadPmsDepartment();
+        $mdlPmsUser = new DloadPmsUser();
+        if ($mdlQsm->load(Yii::$app->request->post())&&$this->saveSelf($mdlQsm,$mdlQsmApprove)) {//提交
+            return $this->redirect('index');
+        }
+
+        $arrDepartment= Department::getDepartmentAll();
+        $arrUser = User::getDepartmentUser(1);
+        //json数据给下拉多选框插件新建时用
+        $jsondataApproveAll = [];
+        foreach ($arrDepartment as $key => $val) {
+            $jsondataApproveAll[] = ['id' => $key, 'text' => $val];
+        }
+        $jsondataApproveAll = json_encode($jsondataApproveAll);
+
+        return $this->render('create', [
+            'mdlQsm' => $mdlQsm,
+            'mdlQsmApprove'=>$mdlQsmApprove,
+            'mdlPmsDepartment'=>$mdlPmsDepartment,
+            'mdlPmsUser'=>$mdlPmsUser,
+            'arrDepartment'=>$arrDepartment,
+            'arrUser'=>$arrUser,
+            'jsondataApprove'=>'{}',
+            'jsondataApproveAll'=>$jsondataApproveAll,
+
+        ]);
+
+    }
+
+    /**
+     * 保存提交的数据
+     */
+    private function saveSelf(QualitySystemManage $mdlQsm,QsmApprover $mdlQsmApprove,$id=null)
+    {
+        $tran = Yii::$app->db->beginTransaction();
+        $isSuc = true;
+        if (!isset($mdlQsm->oldAttributes['updated_at'])||$mdlQsm->oldAttributes['status_submit']!=$mdlQsm->attributes['status_submit'])
+            $mdlQsm->updated_at = time();
+
+        //保存质量文件
+        if(!$mdlQsm->save())
+            $isSuc = false;
+        //保存权限下载用户
+        if($isSuc){
+            $postDate = $_POST['DloadPmsUser']['user_id'];
+            if(!empty($postDate)){
+                if($id != null)//更新
+                    DloadPmsUser::deleteAll(['type'=>DloadPmsUser::TYPE_QSM,'type_id'=>$id]);
+                foreach ($postDate as $value){
+                    $mdlPmsUser = new DloadPmsUser();
+                    if(!$mdlPmsUser->saveSelf(DloadPmsUser::TYPE_QSM,$mdlQsm->id,$value)){
+                        $isSuc = false;
+                        break;
+                    }
+                }
+            }
+        }
+        //保存权限下载部门
+        if($isSuc){
+            $postDate = $_POST['DloadPmsDepartment']['department_id'];
+            if(!empty($postDate)){
+                if($id != null)//更新
+                    DloadPmsDepartment::deleteAll(['type'=>DloadPmsDepartment::TYPE_QSM,'type_id'=>$id]);
+
+                foreach ($postDate as $value){
+                    $mdlPmsDepartment = new DloadPmsDepartment();
+                    if(!$mdlPmsDepartment->saveSelf(DloadPmsDepartment::TYPE_QSM,$mdlQsm->id,$value)){
+                        $isSuc = false;
+                        break;
+                    }
+                }
+            }
+        }
+        //保存审批流
+        if($isSuc){
+            if($id != null)//更新
+                QsmApprover::deleteAll(['qsm_id'=>$id]);
+            if(!$mdlQsmApprove->saveSelf($mdlQsm->id))
+                $isSuc = false;
+        }
+
+
+        if($isSuc){
+            $tran->commit();
+            return true;
+        }
+
+        $tran->rollBack();
+        Yii::$app->getSession()->setFlash('error', "保存失败");
+        return false;
+
+    }
+
+
+    /**
+     * Updates an existing QualitySystemManage model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $mdlQsm = $this->findModel($id);
+        $mdlPmsDepartment = new DloadPmsDepartment();
+        $mdlPmsUser = new DloadPmsUser();
+
+        if ($mdlQsm->load(Yii::$app->request->post())){//提交
+            if($this->saveSelf($mdlQsm,new QsmApprover(),$id))
+                return $this->redirect('index');
+        }
+        //////////////////////////////////////
+        //下载权限部门
+        $arrDepartment= Department::getDepartmentAll();
+        $attrDepartmentId = DloadPmsDepartment::find()->where(['type'=>DloadPmsDepartment::TYPE_QSM,'type_id'=>$id])
+            ->select('department_id')->column();
+        $mdlPmsDepartment->department_id = $attrDepartmentId;
+        //下载权限用户
+        $arrUser = User::getDepartmentUser(1);
+        $attrUser_id = DloadPmsUser::find()->where(['type'=>DloadPmsUser::TYPE_QSM,'type_id'=>$id])->select('user_id')->column();
+        $mdlPmsUser->user_id = $attrUser_id;
+        //审批流
+        $mdlQsmApprove = QsmApprover::find()->where(['qsm_id'=>$id])->all();
+        $arrApprove = [];//
+        foreach ($mdlQsmApprove as $value){//审批流数据
+            $arrApprove[$value->lvl][] = $value->department_id;
+        }
+        //json数据给下拉多选框插件新建时用
+        $jsondataApprove = [];
+        $jsondataApproveAll = [];
+        foreach ($arrDepartment as $key => $val) {
+            $jsondataApproveAll[] = ['id' => $key, 'text' => $val];
+        }
+        //json数据更新时的多选框插件初始化用
+        for ($lvlApp = 3;$lvlApp<=count($arrApprove);$lvlApp++){
+            $jsondataApprove[$lvlApp] = $jsondataApproveAll;
+            foreach ($jsondataApprove[$lvlApp] as $key=>$val) {
+                if(false !== array_search($val['id'],$arrApprove[$lvlApp]))
+                    $jsondataApprove[$lvlApp][$key]['selected'] = true;
+            }
+        }
+
+        $jsondataApprove = json_encode($jsondataApprove);
+        $jsondataApproveAll = json_encode($jsondataApproveAll);
+
+
+        return $this->render('update', [
+            'mdlQsm' => $mdlQsm,
+            'mdlPmsDepartment'=>$mdlPmsDepartment,
+            'mdlPmsUser'=>$mdlPmsUser,
+            'arrDepartment'=>$arrDepartment,
+            'arrUser'=>$arrUser,
+            'arrApprove'=>$arrApprove,
+            'jsondataApprove'=>$jsondataApprove,
+            'jsondataApproveAll'=>$jsondataApproveAll,
+
+        ]);
+    }
+
+    /**
+     * Deletes an existing QualitySystemManage model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the QualitySystemManage model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return QualitySystemManage the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+
+        if (($model = QualitySystemManage::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    /**
+     * 得到文件件的最大版本
+     */
+    public function getMaxVersion($qsmId)
+    {
+        $ver = QsmAttachment::find()->where(['qsm_id'=>$qsmId])->select('max(version) as version')->one();
+        if(empty($ver))
+            return 1;
+        return $ver->version+1;
+    }
+
+    /**
+     * 质量文件上传
+     */
+    public function actionUpload($id)
+    {
+        $mdlQsmAttachment = new QsmAttachment();
+        $mdlQsm = $this->findModel($id);
+
+        if(isset($_POST['QsmAttachment'])) {//保存上传的数据
+            $tran = Yii::$app->db->beginTransaction();
+
+            $attachments = $_FILES['uploadFile'];
+            $fileName = $attachments['name'];
+            if (!empty($fileName)) {
+                //生成文件名和保存的路径
+                $path = '../uploads/qsm/';
+                if (!is_dir($path))
+                    mkdir($path);
+                //保存时的随机名
+                $nameRandom = CommonFunc::genRandomString(9) . '.' . pathinfo(basename($fileName))['extension'];
+                while (file_exists('../uploads/qsm/' . $nameRandom))//看文件是否存在
+                    $nameRandom = CommonFunc::genRandomString(9) . '.' . pathinfo(basename($fileName))['extension'];
+                $path = $path . $nameRandom;
+                //保存附件数据库
+                $mdlQsmAttachment->qsm_id = $id;
+                $mdlQsmAttachment->name = $fileName;
+                $mdlQsmAttachment->path = $path;
+                $mdlQsmAttachment->updated_at = time();
+                $mdlQsmAttachment->version = $this->getMaxVersion($id);
+                $mdlQsmAttachment->status = 0;
+                $mdlQsmAttachment->remark = $_POST['QsmAttachment']['remark'];
+                $mdlQsm->status_submit = QualitySystemManage::FILE_STATUS_APPROVE;
+                if ($mdlQsmAttachment->save()&&$mdlQsm->save()) {
+                    //上传文件
+                    if (move_uploaded_file($attachments['tmp_name'], $path)) {
+                        if ($mdlQsmAttachment->createTask()) {
+                            $tran->commit();
+                            Yii::$app->getSession()->setFlash('success', "成功提交任务");
+                            return $this->redirect(['/tasks/index']);
+                        }else{
+                            if(file_exists($path))//如果没上传成功删掉上传的文件
+                                unlink($path);
+                        }
+                    }
+                }
+                Yii::$app->getSession()->setFlash('warning', "提交失败，联系管理员");
+                $tran->rollBack();
+            } else
+                Yii::$app->getSession()->setFlash('warning', "提交失败，附件不可以为空");
+        }
+        //审批部门
+        $departmentApprove = $mdlQsm->getApproverDepartment();
+
+        return $this->render('upload', [
+            'mdlQsm' => $mdlQsm,
+            'mdlQsmAttachment'=>$mdlQsmAttachment,
+            'departmentApprove'=>$departmentApprove
+        ]);
+
+    }
+
+    public function actionUploadView($id,$idUserTask=-1)
+    {
+        $mdlUserTask = null;
+        if($idUserTask != -1)
+        {
+            $mdlUserTask = UserTask::find()->leftJoin('tasks','user_task.task_id=tasks.id')
+                ->select('*,user_task.status as userTaskStatus,tasks.status as taskStatus')
+                ->where(['user_task.id'=>$idUserTask])->one();
+        }
+
+        $model = QsmAttachment::findOne($id);
+        return $this->render('upload-view',['model'=>$model,'mdlUserTask'=>$mdlUserTask]);
+
+    }
+
+    public function actionUploadUpdate($id)
+    {
+        $mdlQsmAttachment = QsmAttachment::findOne($id);
+        $qsmId = $mdlQsmAttachment->qsm_id;
+        if(isset($_POST['QsmAttachment'])) {//保存上传的数据
+            $tran = Yii::$app->db->beginTransaction();
+
+            $attachments = $_FILES['uploadFile'];
+            $fileName = $attachments['name'];
+            if (!empty($fileName)) {
+                //生成文件名和保存的路径
+                $path = '../uploads/qsm/';
+                if (!is_dir($path))
+                    mkdir($path);
+                //保存时的随机名
+                $nameRandom = CommonFunc::genRandomString(9) . '.' . pathinfo(basename($fileName))['extension'];
+                while (file_exists('../uploads/qsm/' . $nameRandom))//看文件是否存在
+                    $nameRandom = CommonFunc::genRandomString(9) . '.' . pathinfo(basename($fileName))['extension'];
+                $path = $path . $nameRandom;
+                //保存附件数据库
+                $mdlQsmAttachment->name = $fileName;
+                $mdlQsmAttachment->path = $path;
+                $mdlQsmAttachment->updated_at = time();
+                $mdlQsmAttachment->status = 0;
+                $mdlQsmAttachment->remark = $_POST['QsmAttachment']['remark'];
+                if ($mdlQsmAttachment->save()) {
+                    //上传文件
+                    if (move_uploaded_file($attachments['tmp_name'], $path)) {
+                        if ($mdlQsmAttachment->updateTask(Tasks::findOne(['type'=>Tasks::TASK_TYPE_QSM,'type_id'=>$id]))) {
+                            $tran->commit();
+                            Yii::$app->getSession()->setFlash('success', "成功提交任务");
+                            return $this->redirect(['/tasks/index']);
+                        }else{
+                            if(file_exists($path))//如果没上传成功删掉上传的文件
+                                unlink($path);
+                        }
+                    }
+                }
+                Yii::$app->getSession()->setFlash('warning', "提交失败，联系管理员");
+                $tran->rollBack();
+            } else
+                Yii::$app->getSession()->setFlash('warning', "提交失败，附件不可以为空");
+        }
+        $mdlQsm = $this->findModel($qsmId);
+        //审批部门，
+
+
+        $departmentApprove = $mdlQsm->getApproverDepartment();
+        return $this->render('upload', [
+            'mdlQsm' => $mdlQsm,
+            'mdlQsmAttachment'=>$mdlQsmAttachment,
+            'departmentApprove'=>$departmentApprove
+        ]);
+
+    }
+
+    /**
+     * 文件下载
+     */
+    public function actionDownload($pathFile,$filename)
+    {
+        if (file_exists($pathFile))
+        {
+            $flag=$_SERVER['HTTP_USER_AGENT'];
+            if(strpos($flag,'Trident'))
+                $filename = urlencode($filename);
+            return Yii::$app->response->sendFile($pathFile, $filename);
+        }
+        var_dump('没有找到文件');die;
+    }
+
+    public function actionStatistics()
+    {
+        $mdl = new QualitySystemManage();
+
+        $resProcess = $mdl->allProcess();
+        $arrFileClass = $mdl->fileClassCount();
+        $arrDepartment = $mdl->departmentCount();
+        $arrEfficiency = $mdl->EfficiencyCount();
+
+        return $this->render('statistics',[
+            'arrFileClass'=>$arrFileClass,
+            'arrDepartment'=>$arrDepartment,
+            'arrEfficiency'=>$arrEfficiency,
+            'resProcess'=>$resProcess
+        ]);
+    }
+
+    public function actionAllVersion($id)
+    {
+        $mdl = new ActiveDataProvider(['query'=>QsmAttachment::find()->alias('qsmA')
+            ->leftJoin(['qsm'=>'quality_system_manage'],'qsm.id=qsmA.qsm_id')->where(['qsm.id'=>$id])])
+            ;
+
+        return $this->render('all-version',
+            [
+                'mdl'=>$mdl
+            ]);
+    }
+
+    public function actionApproveDetail($id)
+    {
+        $taskid = Tasks::findOne(['type_id'=>$id,'type'=>Tasks::TASK_TYPE_QSM])->id;
+        $query = UserTask::find()->where(['task_id'=>$taskid]);
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+        ]);
+        return $this->renderAjax('/user-task/view', [
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**
+     * 检查是否可以上传，不用了
+     */
+    public function actionUploadCheck()
+    {
+        $id=$_POST['id'];
+        $mdl = QsmAttachment::find()->where(['status'=>0,'qsm_id'=>$id])->all();
+        if(empty($mdl))
+            return true;
+        return false;
+    }
+}

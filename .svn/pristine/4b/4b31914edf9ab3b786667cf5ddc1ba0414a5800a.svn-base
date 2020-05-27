@@ -1,0 +1,306 @@
+<?php
+
+namespace frontend\controllers;
+
+use Yii;
+use frontend\models\Boms;
+use yii\data\ArrayDataProvider;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use yii\helpers\Json;
+use common\components\CommonFunc;
+use yii\base\Model;
+
+/**
+ * BomsController implements the CRUD actions for Boms model.
+ */
+class BomsController extends Controller
+{
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all Boms models.
+     * @return mixed
+     */
+    public function actionIndex($id, $forward = true, $multiLevel = true)
+    {
+        if (Yii::$app->request->isAjax) {
+            //分层查找法
+            if ($forward) {//正向查询
+                $data = Boms::forwardQuery($id, true);
+            } else {//逆向查询
+                $data = Boms::reverseQuery($id, $multiLevel);
+            }
+
+            //遍历多维数组，并在数组项之间建立父子关系，生成树型结构数组
+            $data = Boms::generateTreeArray($data, $data[0]['parent_id']);
+
+
+            return Json::encode($data);
+        }
+
+        /*   $dataProvider = new ActiveDataProvider([
+               'query' => Boms::find(),
+           ]);*/
+        $model = $this->findModel($id);
+        if ($forward) {//正向查询
+            //如果该id对应的bom版本状态是未发布，则有可能并不是该bom版本的实际状态，重新搜索所有状态并按状态降序排序，将排在最前的指定给$model
+            if ($model->status == Boms::STATUS_UNRELEASE) {
+                $boms = Boms::find()->where(['child_id' => $model->child_id, 'child_version' => $model->child_version])->orderBy('status DESC')->all();
+                $model = $boms[0];
+            }
+        } else {//逆向查询，找出最新的版本及其实际发布状态
+            $boms = Boms::find()->where(['child_id' => $model->child_id])->orderBy('child_version DESC, status DESC, created_at')->all();
+            $model = $boms[0];
+        }
+        //获得选定料号的版本列表
+        $versionList = Boms::find()->select(['child_version'])->distinct()->where(['child_id' => $model->child_id])->orderBy('child_version')->asArray()->all();
+
+        return $this->render('index', [
+            //   'dataProvider' => $dataProvider,
+            'model' => $model,
+            'versionList' => Json::encode($versionList),
+            'forward' => $forward,
+            'multiLevel' => $multiLevel,
+            //   'parent_id' => $parent_id,
+            //   'parent_version' => $parent_version,
+        ]);
+    }
+
+    public function actionCompare()
+    {
+        $models[] = new Boms();
+        $models[] = new Boms();
+
+        //查出有子级的所有物料数组
+        $parent_code = Boms::find()->select(['parent_id', 'materials.zc_part_number'])->distinct('parent_id')->innerJoinWith('material')->orderBy('materials.zc_part_number')->asArray()->all();
+
+        if (Model::loadMultiple($models, Yii::$app->request->post()) && Model::validateMultiple($models)) {
+            $data = array();
+            foreach ($models as $key => $model) {
+                $boms = Boms::find()->where(['child_id' => $model->child_id, 'child_version' => $model->child_version])->orderBy('status DESC')->all();
+                $model = $boms[0];
+                $data[] = Boms::forwardQuery($model->id, true);
+
+                $models[$key]->zc_part_number = $data[$key][0]['zc_part_number'];
+                //数组中的第一个元素是比较bom的料号及版本信息，删除
+                array_shift($data[$key]);
+            }
+         //   $result=array_diff_assoc($data[0],$data[1]);
+         //   print_r($result);
+            $arr_bom1diffbom2 = array_udiff($data[0], $data[1], function ($a, $b) {
+                if ($a === $b) {
+                    return 0;
+                }
+                return ($a > $b) ? 1 : -1;
+            });
+
+            $arr_bom2diffbom1 = array_udiff($data[1], $data[0], function ($a, $b) {
+                if ($a === $b) {
+                    return 0;
+                }
+                return ($a > $b) ? 1 : -1;
+            });
+
+         //   var_dump($arr_bom1diffbom2);
+         //   var_dump($arr_bom2diffbom1);
+
+            $provider_bom1diffbom2 = new ArrayDataProvider([
+                'allModels' => $arr_bom1diffbom2,
+                'pagination' => [
+                    'pageSize' => 1000,
+                ],
+            ]);
+            $provider_bom2diffbom1 = new ArrayDataProvider([
+                'allModels' => $arr_bom2diffbom1,
+                'pagination' => [
+                    'pageSize' => 1000,
+                ],
+            ]);
+
+         /*   return $this->render('view', [
+                'models' => $models,
+                'provider_bom1diffbom2' => $provider_bom1diffbom2,
+                'provider_bom2diffbom1' => $provider_bom2diffbom1,
+            ]);*/
+        } else {
+            return $this->render('compare', [
+                'model' => $models,
+                'parent_code' => $parent_code,
+            ]);
+        }
+    }
+
+    /**
+     * Displays a single Boms model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        return $this->render('view', [
+            'model' => $this->findModel($id),
+        ]);
+    }
+
+    /**
+     * Creates a new Boms model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate()
+    {
+        $model = new Boms();
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            return $this->redirect(['view', 'id' => $model->id]);
+        } else {
+            return $this->render('create', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Updates an existing Boms model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            return $this->redirect(['view', 'id' => $model->id]);
+        } else {
+            return $this->render('update', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Deletes an existing Boms model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the Boms model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return Boms the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = Boms::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    /**
+     * @DESC 数据导出
+     * @param integer $id
+     * @param bool $multiLevel
+     */
+    public function actionExportData($id, $multiLevel = true)
+    {
+        //分层查找法
+        Boms::forwardQuery($id, $multiLevel, false);
+        $sql = "SELECT m1.zc_part_number, b.level, m1.purchase_level, b.parent_id, b.child_id, m1.part_name, m1.description, m1.pcb_footprint, b.qty, m1.unit, b.ref_no, 
+                 m1.mfr_part_number, mer1.name AS manufacturer, 
+                 m2.zc_part_number AS zc_part_number2, m2.mfr_part_number AS mfr_part_number2, mer2.name AS manufacturer2, 
+                 m3.zc_part_number AS zc_part_number3, m3.mfr_part_number AS mfr_part_number3, mer3.name AS manufacturer3, 
+                 m4.zc_part_number AS zc_part_number4, m4.mfr_part_number AS mfr_part_number4, mer4.name AS manufacturer4 
+                 FROM tmp_boms1 AS b 
+                 LEFT JOIN materials AS m1 ON b.child_id=m1.material_id LEFT JOIN material_encode_rule AS mer1 ON mer1.id=m1.manufacturer 
+                 LEFT JOIN materials AS m2 ON b.zc_part_number2_id=m2.material_id LEFT JOIN material_encode_rule AS mer2 ON mer2.id=m2.manufacturer 
+                 LEFT JOIN materials AS m3 ON b.zc_part_number3_id=m3.material_id LEFT JOIN material_encode_rule AS mer3 ON mer3.id=m3.manufacturer 
+                 LEFT JOIN materials AS m4 ON b.zc_part_number4_id=m4.material_id LEFT JOIN material_encode_rule AS mer4 ON mer4.id=m4.manufacturer";
+        $data = Yii::$app->db->createCommand($sql)->queryAll();
+
+        //遍历多维数组，并在数组项之间建立父子关系，生成树型结构数组
+        $data = Boms::generateTreeArray($data, $data[0]['parent_id']);
+        //遍历树型结构数组，生成列表结构数组
+        $data = Boms::generateListArray($data, 'children');
+        //删除parent_id, child_id字段
+        foreach($data as $key=>$val)
+        {
+            unset($data[$key]['parent_id']);
+            unset($data[$key]['child_id']);
+        }
+
+        if ($data) { // 数据处理
+            // 给每一行记录添加Item序号
+            for ($item=0; $item<count($data); $item++) {
+                array_unshift($data[$item], $item+1);
+            }
+        }
+        $header = [
+            ['header'=>"Item", 'width'=>7],
+            ['header'=>Yii::t('material', 'Zhiche Part Number'), 'width'=>20],
+            ['header'=>Yii::t('bom', 'Assy Level'), 'width'=>8],
+            ['header'=>Yii::t('material', 'Purchase Level'), 'width'=>8],
+         //   ['header'=>"ID", 'width'=>7],
+         //   ['header'=>"Parent ID", 'width'=>7],
+         //   ['header'=>"Child ID", 'width'=>7],
+            ['header'=>Yii::t('material', 'Part Name'), 'width'=>20],
+            ['header'=>Yii::t('material', 'Description'), 'width'=>35],
+            ['header'=>Yii::t('material', 'Pcb Footprint'), 'width'=>15],
+            ['header'=>Yii::t('bom', 'Qty'), 'width'=>7],
+            ['header'=>Yii::t('material', 'Unit'), 'width'=>7],
+            ['header'=>Yii::t('bom', 'Reference No.'), 'width'=>25],
+            ['header'=>Yii::t('material', 'Manufacturer Part Number'), 'width'=>20],
+            ['header'=>Yii::t('material', 'Manufacturer'), 'width'=>15],
+            ['header'=>Yii::t('material', 'Second Zhiche Part Number'), 'width'=>20],
+            ['header'=>Yii::t('material', 'Second Manufacturer Part Number'), 'width'=>20],
+            ['header'=>Yii::t('bom', 'Second Manufacturer'), 'width'=>15],
+            ['header'=>Yii::t('material', 'third Zhiche Part Number'), 'width'=>20],
+            ['header'=>Yii::t('material', 'third Manufacturer Part Number'), 'width'=>20],
+            ['header'=>Yii::t('bom', 'Third Manufacturer'), 'width'=>15],
+            ['header'=>Yii::t('material', 'fourth Zhiche Part Number'), 'width'=>20],
+            ['header'=>Yii::t('material', 'fourth Manufacturer Part Number'), 'width'=>20],
+            ['header'=>Yii::t('bom', 'Fourth Manufacturer'), 'width'=>15],
+        ]; //导出excel的表头
+        CommonFunc::exportData($data, $header, "Sheet1", "Export Bom");
+    }
+
+    public function actionGetBomId($child_id, $version)
+    {
+        $status = 1;
+        $bomArray = Boms::find()->where(['child_id' => $child_id, 'child_version' => $version])->orderBy('status DESC')->asArray()->all();
+        return json_encode(['status'=>$status,'message'=>'','data'=>$bomArray[0]['id']]);
+    }
+
+    public function actionGetVersionById($child_id)
+    {
+        //获得选定料号的版本列表
+        $versionList = Boms::find()->select(['child_version'])->distinct()->where(['child_id' => $child_id])->orderBy('child_version')->asArray()->all();
+        return json_encode(['status'=>1,'message'=>'','data'=>$versionList]);
+    }
+}

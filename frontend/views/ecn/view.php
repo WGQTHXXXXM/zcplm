@@ -1,0 +1,261 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\DetailView;
+use kartik\grid\GridView;
+use frontend\models\EcnAltgroup;
+use frontend\web\JQWidgetsAsset;
+/* @var $this yii\web\View */
+/* @var $modelEcn frontend\models\Ecn */
+/* @var $changeSets frontend\models\EcnChangeSet */
+
+$this->title = Yii::t('common','View');
+$this->params['breadcrumbs'][] = ['label' => Yii::t('common', 'Ecns'), 'url' => ['index']];
+$this->params['breadcrumbs'][] = $this->title;
+
+$strEffectRange = '';
+$arrEffectRange = explode(',',$modelEcn->effect_range);
+foreach ($arrEffectRange as $value){
+    $strEffectRange .= '<span class="label label-info">'.$value.'</span>&emsp;';
+}
+
+
+?>
+<div class="row"><div class="col-md-12">
+        <div class="ecn-view">
+
+            <h1>
+                <?php
+                echo Html::encode($this->title);
+
+                if(!empty($modelEcn->ecr))
+                    echo Html::a('查看相关ECR', ['/ecr/view','id'=>$modelEcn->ecr->id],
+                        ['class' => 'btn btn-success','style'=>'margin-left:200px']);
+
+                ?>
+            </h1>
+
+            <?= DetailView::widget([
+                'model' => $modelEcn,
+                'template' => '<tr><th width="130">{label}</th><td>{value}</td></tr>',
+                'attributes' => [
+                    'serial_number',
+                    [
+                        'attribute'=>'projectName',
+                        'label'=>'项目名称'
+                    ],
+                    [
+                        'attribute'=>'projectProcess',
+                        'label'=>'项目阶段'
+                    ],
+                    [
+                        'attribute'=>'partNo',
+                        'label'=>'机种智车料号'
+                    ],
+                    [
+                        'attribute'=>'description',
+                        'label'=>'机种智车料号描述'
+                    ],
+                    [
+                        'attribute'=>'background',
+                        'label'=>'变更背景',
+                        'format'=>'ntext'
+                    ],
+                    [
+                        'attribute'=>'content',
+                        'label'=>'变更内容',
+                        'format'=>'ntext'
+                    ],
+                    [
+                        'attribute'=>'effect_range',
+                        'format'=>'raw',
+                        'value'=>$strEffectRange
+                    ],
+                    [
+                        'attribute'=>'created_at',
+                        'value'=>date('Y-m-d H:i:s',$modelEcn->created_at),
+                    ],
+                    [
+                        'attribute'=>'updated_at',
+                        'value'=>date('Y-m-d H:i:s',$modelEcn->updated_at)
+                    ],
+                    [
+                        'attribute'=>'change_now',
+                        'value'=>$modelEcn::CHANGE_NOW[$modelEcn->change_now]
+                    ],
+                    [
+                        'attribute'=>'affect_stock',
+                        'value'=>$modelEcn::AFFECT_STOCK[$modelEcn->affect_stock]
+                    ],
+                    'remark:ntext',
+                ],
+            ]) ?>
+
+        </div>
+        <br><br><br>
+        <div>
+
+            <?php
+                echo '<h1>变更</h1>';
+                echo '<h3 style="display: inline">附件：</h3>'. \yii\helpers\Html::a($dataAttachment->name,
+                        ['ecr/download', 'pathFile' => $dataAttachment->path, 'filename' => $dataAttachment->name],
+                        ['style'=>'font-size:24px;']);
+                echo '<br><br><h3 style="display: inline">变更的BOM：</h3>';
+                echo '<p></p><div id="treeGrid" class="box"></div>';
+            ?>
+        </div>
+    </div></div>
+<br><br><br>
+<?php
+
+    JQWidgetsAsset::register($this);
+    $zc_part_number = Yii::t('material', 'Zhiche Part Number');
+    $zc_part_number2 = Yii::t('material', 'Second Zhiche Part Number');
+    $zc_part_number3 = Yii::t('material', 'third Zhiche Part Number');
+    $zc_part_number4 = Yii::t('material', 'fourth Zhiche Part Number');
+    $mfr_part_number = Yii::t('material', 'Manufacturer Part Number');
+    $mfr_part_number2 = Yii::t('material', 'Second Manufacturer Part Number');
+    $mfr_part_number3 = Yii::t('material', 'third Manufacturer Part Number');
+    $mfr_part_number4 = Yii::t('material', 'fourth Manufacturer Part Number');
+    $manufacturer = Yii::t('material', 'Manufacturer');
+    $manufacturer2 = Yii::t('bom', 'Second Manufacturer');
+    $manufacturer3 = Yii::t('bom', 'Third Manufacturer');
+    $manufacturer4 = Yii::t('bom', 'Fourth Manufacturer');
+    $purchase_level = Yii::t('material', 'Purchase Level');
+    $part_name = Yii::t('material', 'Part Name');
+    $description = Yii::t('material', 'Description');
+    $unit = Yii::t('material', 'Unit');
+    $pcb_footprint = Yii::t('material', 'Pcb Footprint');
+    $qty = Yii::t('bom', 'Qty');
+    $ref_no = Yii::t('bom', 'Reference No.');
+    $assy_level = Yii::t('bom', 'Assy Level');
+    $status = Yii::t('bom', 'Status');
+    $notRelease = Yii::t('bom', 'Not Release');
+    $release = Yii::t('bom', 'Release');
+    $urlAjax = "/boms/index?material_id=".$mdlEcnPbomAttachment[0]."&forward=1";
+    $js=<<<JS
+    var source =
+    {
+        dataType: "json",
+        dataFields: [
+            { name: 'id', type: 'number' },
+            { name: 'level', type: 'number' },
+            { name: 'parent_id', type: 'number' },
+            { name: 'child_id', type: 'number' },
+            { name: 'parent_version', type: 'number' },
+         //   { name: 'child_version', type: 'number' },
+            { name: 'zc_part_number', type: 'string' },
+            { name: 'purchase_level', type: 'string' },
+            { name: 'part_name', type: 'string' },
+            { name: 'description', type: 'string' },
+            { name: 'unit', type: 'string' },
+            { name: 'pcb_footprint', type: 'string' },
+            { name: 'qty', type: 'number' },
+            { name: 'ref_no', type: 'string' },
+            { name: 'mfr_part_number', type: 'string' },
+            { name: 'manufacturer', type: 'string' },
+            { name: 'zc_part_number2', type: 'string' },
+            { name: 'mfr_part_number2', type: 'string' },
+            { name: 'manufacturer2', type: 'string' },
+            { name: 'zc_part_number3', type: 'string' },
+            { name: 'mfr_part_number3', type: 'string' },
+            { name: 'manufacturer3', type: 'string' },
+            { name: 'zc_part_number4', type: 'string' },
+            { name: 'mfr_part_number4', type: 'string' },
+            { name: 'manufacturer4', type: 'string' },
+            { name: 'status', type: 'number' },
+            { name: 'pv_release_time', type: 'date' },
+            { name: 'pv_effect_date', type: 'date' },
+            { name: 'pv_expire_date', type: 'date' },
+            { name: 'bom_expire_date', type: 'date' },
+          //  { name: 'type', type: 'number' },
+          //  { name: 'creater_id', type: 'number' },
+          //  { name: 'creater', type: 'string' },
+          //  { name: 'created_at', type: 'date' },
+          //  { name: 'updated_at', type: 'date' }
+            { name: 'children', type: 'array' }
+        ],
+        hierarchy:
+        {
+            root: 'children'
+        },
+        id: 'child_id',
+        url: '$urlAjax'
+    };
+    var dataAdapter = new $.jqx.dataAdapter(source);
+    ////////自适应屏幕高度////////////////
+    // create Tree Grid
+    $("#treeGrid").jqxTreeGrid(
+    {
+    //    width: 850,
+        width: '100%',
+        height: '500',
+        source: dataAdapter,
+        sortable: true,
+        columnsResize: true,
+        altRows: true,
+        icons: true,
+        ready: function()
+        {
+            $('#treeGrid').jqxTreeGrid({enableBrowserSelection: true });
+            $("#treeGrid").jqxTreeGrid('expandAll');
+        },
+        columns: [
+          { 
+            text: '$zc_part_number', dataField: 'zc_part_number', width: 260, 
+            cellsRenderer: function (rowKey, dataField, value, data) {
+                var bom_expire_date = new Date(data.bom_expire_date);
+                bom_expire_date = bom_expire_date.getTime();
+                return "<a href='#' onclick='rowClick("+rowKey+', '+data.child_id+', '+bom_expire_date+")'>"+value+"</a>"; //+rowKey+', '+data.parent_id+', '+value+', '+data.child_id+
+            }
+          },
+//          {
+//            text: '$status', dataField: 'status', width: 60,
+//            cellsRenderer: function (rowKey, dataField, value, data) {
+//                switch (value) {
+//                    case 0:
+//                        status = '$notRelease';
+//                        break;
+//                    case 1:
+//                        status = '$release';
+//                        break;
+//                }
+//                return status;
+//            }
+//          },
+//          { text: '$assy_level', dataField: 'level', width: 60 },
+          { text: '$purchase_level', dataField: 'purchase_level', width: 60 },
+          { text: '$part_name', dataField: 'part_name', width: 100 },
+          { text: '$description', dataField: 'description', width: 300 },
+//          { text: '$pcb_footprint', dataField: 'pcb_footprint', width: 100 },
+          { text: '$qty', dataField: 'qty', width: 50 },
+          { text: '$unit', dataField: 'unit', width: 50 },
+          { text: '$ref_no', dataField: 'ref_no', width: 150 },
+          { text: '$mfr_part_number', dataField: 'mfr_part_number', width: 150 },
+          { text: '$manufacturer', dataField: 'manufacturer', width: 100 },
+          { text: '$zc_part_number2', dataField: 'zc_part_number2', width: 150 },
+//          { text: '$mfr_part_number2', dataField: 'mfr_part_number2', width: 150 },
+//          { text: '$manufacturer2', dataField: 'manufacturer2', width: 110 },
+//          { text: '$zc_part_number3', dataField: 'zc_part_number3', width: 150 },
+//          { text: '$mfr_part_number3', dataField: 'mfr_part_number3', width: 150 },
+//          { text: '$manufacturer3', dataField: 'manufacturer3', width: 110 },
+//          { text: '$zc_part_number4', dataField: 'zc_part_number4', width: 150 },
+//          { text: '$mfr_part_number4', dataField: 'mfr_part_number4', width: 150 },
+//          { text: '$manufacturer4', dataField: 'manufacturer4', width: 110 }
+        ],
+    });
+
+
+
+
+JS;
+$this->registerJs($js);
+
+
+
+?>
+<?php
+require('../views/layouts/view-approve.php');
+
+?>
+

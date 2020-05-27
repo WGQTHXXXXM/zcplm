@@ -1,0 +1,373 @@
+<?php
+
+use kartik\file\FileInput;
+use kartik\select2\Select2;
+use yii\widgets\ActiveForm;
+use yii\helpers\Html;
+use yii\helpers\ArrayHelper;
+use kartik\grid\GridView;
+use kartik\editable\Editable;
+use frontend\models\Approvals;
+use frontend\models\Upload;
+use mdm\admin\models\User;
+use yii\data\ActiveDataProvider;
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\FileAttachments */
+
+extract($params);
+$depth = ArrayHelper::getValue($breadcrumbs, 'depth');
+$glue = ArrayHelper::getValue($breadcrumbs, 'glue');
+$activeCss = ArrayHelper::getValue($breadcrumbs, 'activeCss');
+$untitled = ArrayHelper::getValue($breadcrumbs, 'untitled');
+$name = $node->getBreadcrumbs($depth, $glue, $activeCss, $untitled);
+
+//$this->title = $model->file_attachment_id;
+$query = Approvals::find();
+$query->joinWith('fileAttachment.submitter')->where(['file_id' => $_GET['file_id']]);
+$query->joinWith('approver');
+$dataProvider = new ActiveDataProvider([
+    'query' => $query,
+]);
+
+$approvers = User::find()->select(['id', 'username'])->where(['status' => User::STATUS_ACTIVE])->asArray()->all();
+//   $project_process = ProjectProcess::findOne($id);
+//   $query = FileAttachments::find()->where(['file_id' => $id]);
+//   $dataProvider = new ActiveDataProvider([
+//       'query' => $query,
+//   ]);
+
+
+$approvals = new Approvals();
+$model = new Upload();
+
+// @param $p1 Array 需要预览的附件，是附件的一个集合
+// @param $p2 Array 对应附件的操作属性，我们这里包括附件删除的地址和附件的id
+$p1 = $p2 = [];
+?>
+
+<?php if($_GET['file_id'] != 0):  ?>
+<div class="file-attachments-view">
+
+    <p>
+        <!--?= Html::a(Yii::t('common', 'Update'), ['update', 'id' => $model->file_attachment_id], ['class' => 'btn btn-primary']) ?-->
+        <!--?= Html::a(Yii::t('common', 'Delete'), ['delete', 'id' => $model->file_attachment_id], [
+            'class' => 'btn btn-danger',
+            'data' => [
+                'confirm' => Yii::t('common', 'Are you sure you want to delete this item?'),
+                'method' => 'post',
+            ],
+        ]) ?-->
+    </p>
+
+    <!--?= DetailView::widget([
+        'model' => $model,
+        'attributes' => [
+            'file_attachment_id',
+            'file_id',
+            'submitter_id',
+            'attachment_url:url',
+            'version',
+            'created_at',
+            'updated_at',
+        ],
+    ]) ?-->
+
+    <?= GridView::widget([
+        'dataProvider' => $dataProvider,
+        //  'filterModel'=>$searchModel,
+        //  'showPageSummary'=>true,
+        //  'pjax' => true, //为true时文件下载得用右键选择
+        'floatHeader' => false,
+        'striped' => true,
+        'export' => false,
+        'toggleData' => false,
+        //  'hover'=>true,
+        'panel' => ['type' => 'success', 'heading' => $name, 'footer' => false],
+        'columns' => [
+            ['class' => 'kartik\grid\SerialColumn'],
+            [
+                'attribute' => 'fileAttachment.version',
+                'group' => true,
+                'hAlign' => 'center',
+                'vAlign' => 'middle',
+                'groupFooter'=>function ($model, $key, $index, $widget) { // Closure method
+                    return [
+                        'mergeColumns'=>[[0,9]], // columns to merge in summary
+                        /*  'content'=>[             // content to show in each summary cell
+                            //  1=>'Summary (' . $model->supplier->company_name . ')',
+                            //  4=>GridView::F_AVG,
+                              5=>GridView::F_SUM,
+                            //  6=>GridView::F_SUM,
+                          ],
+                          'contentFormats'=>[      // content reformatting for each summary cell
+                            //  4=>['format'=>'number', 'decimals'=>2],
+                              5=>['format'=>'number', 'decimals'=>0],
+                            //  6=>['format'=>'number', 'decimals'=>2],
+                          ],
+                          'contentOptions'=>[      // content html attributes for each summary cell
+                            //  1=>['style'=>'font-variant:small-caps'],
+                            //  4=>['style'=>'text-align:right'],
+                              5=>['style'=>'text-align:right'],
+                            //  6=>['style'=>'text-align:right'],
+                          ],*/
+                        // html attributes for group summary row
+                        'options'=>['class'=>'success','style'=>'font-weight:bold;']
+                    ];
+                }
+            ],
+            [
+                'attribute' => 'fileAttachment.submitter_id',
+                //  'width'=>'310px',
+                'value' => function($model, $key, $index, $widget) {
+                    return $model->fileAttachment->submitter->username;
+                },
+                //  'filterType'=>GridView::FILTER_SELECT2,
+                //  'filter'=>ArrayHelper::map(Suppliers::find()->orderBy('company_name')->asArray()->all(), 'id', 'company_name'),
+                //  'filterWidgetOptions'=>[
+                //      'pluginOptions'=>['allowClear'=>true],
+                //  ],
+                //  'filterInputOptions'=>['placeholder'=>'Any supplier'],
+                'group' => true,  // enable grouping
+                'subGroupOf' => 1,
+                'vAlign' => 'middle',
+            ],
+            [
+                'attribute' => 'fileAttachment.attachment_url',
+                'value' => function($model) {
+                    $filename = substr($model->fileAttachment->attachment_url, strrpos($model->fileAttachment->attachment_url, '/')+1);
+                    return Html::a($filename, [
+                        'file-attachments/download',
+                        'file_attachment_id' => $model->file_attachment_id,
+                        'pathFile' => $model->fileAttachment->attachment_url,
+                        'filename' => $filename]);
+                },
+                'format' => 'raw',
+                'group' => true,
+                'subGroupOf' => 1,
+                'vAlign' => 'middle',
+            ],
+//            [
+//                'class' => 'kartik\grid\ActionColumn',
+//                'header'=> Yii::t('common','Preview'),
+//                'template' => '{file-attachments/delete}',
+//                'buttons' => [
+//                    'file-attachments/delete' => function ($url, $model, $key) {
+//                        return Html::a('<span class="glyphicon glyphicon-eye-open"></span>', ['file-attachments/preview',
+//                            'attachmentId' => $model->file_attachment_id], ['title' => Yii::t('common','Preview'),'target'=>'_blank',
+//                        ]);
+//
+//                    },
+//                ],
+//            ],
+            [
+                'attribute' => 'approver_id',
+                //  'width'=>'250px',
+                'value' => function($model, $key, $index, $widget) {
+                    return $model->approver->username;
+                },
+                //  'filterType'=>GridView::FILTER_SELECT2,
+                //  'filter'=>ArrayHelper::map(Categories::find()->orderBy('category_name')->asArray()->all(), 'id', 'category_name'),
+                //  'filterWidgetOptions'=>[
+                //      'pluginOptions'=>['allowClear'=>true],
+                //  ],
+                //  'filterInputOptions'=>['placeholder'=>'Any category']
+            ],
+            [
+                'class'=>'kartik\grid\EditableColumn',
+                'attribute' => 'status',
+                'value' => function($model) {
+                    switch ($model->status) {
+                        case Approvals::STATUS_UNAPPROVED:
+                            $status = Yii::t('common', 'Unapproved');
+                            break;
+                        case Approvals::STATUS_APPROVING:
+                            $status = Yii::t('common', 'Approving');
+                            break;
+                        case Approvals::STATUS_APPROVED:
+                            $status = Yii::t('common', 'Approved');
+                            break;
+                        case Approvals::STATUS_REJECTED:
+                            $status = Yii::t('common', 'Rejected');
+                            break;
+                        default:
+                            $status = Yii::t('common', 'Undefined');
+                    }
+                    return $status;
+                },
+                /*  'editableOptions'=>[
+                      'formOptions'=>['action' => ['/book/editbook']], // point to the new action
+                      'inputType'=>\kartik\editable\Editable::INPUT_DROPDOWN_LIST,
+                      'data' => [
+                          Approvals::STATUS_UNAPPROVED => Yii::t('common', 'Unapproved'),
+                          Approvals::STATUS_APPROVING => Yii::t('common', 'Approving'),
+                          Approvals::STATUS_APPROVED => Yii::t('common', 'Approved'),
+                          Approvals::STATUS_REJECTED => Yii::t('common', 'Rejected')
+                      ],
+                      'options'=>['class'=>'form-control'],
+                  ],*/
+                'refreshGrid' => true,
+                'editableOptions' => function ($model, $key, $index) {
+                    return [
+                        'submitButton'=>['icon'=>'<i class="glyphicon glyphicon-floppy-disk"></i>','class'=>'btn btn-sm btn-primary kv-editable-submit'],
+                        'size' => 'md',
+                        'formOptions' => ['action' => ['/file-attachments/edit-approval']], // point to the new action
+                        'inputType' => Editable::INPUT_DROPDOWN_LIST,
+                        'submitOnEnter' => false,
+                        'data' => [
+                            Approvals::STATUS_APPROVED => Yii::t('common', 'Approved'),
+                            Approvals::STATUS_REJECTED => Yii::t('common', 'Rejected')
+                        ],
+                        'afterInput' => function ($form, $widget) use ($model, $index) {
+                            return $form->field($model, "[$index]remark")->textarea([
+                                'displayValue' => 'more...',
+                                'inputType' => Editable::INPUT_TEXTAREA,
+                                //  'value' => "Raw denim you...",
+                                'submitOnEnter' => false,
+                                'size' => 'md',
+                                'rows' => 5,
+                            ]);
+                        }
+                    ];
+                }
+                //  'filter' => [
+                //      Approvals::STATUS_UNAPPROVED => '未审批',
+                //      Approvals::STATUS_APPROVING => '审批中',
+                //      Approvals::STATUS_APPROVED => '审批同意',
+                //      Approvals::STATUS_REJECTED => '审批拒绝'
+                //  ]
+            ],
+            [
+                'class'=>'kartik\grid\EditableColumn',
+                'attribute' => 'remark',
+                //  'width'=>'250px',
+                'editableOptions' => function ($model, $key, $index) {
+                    return [
+                        'size' => 'md',
+                        //  'formOptions'=>['action' => ['/xxx/xxx']],
+                        'inputType' => Editable::INPUT_TEXTAREA,
+                        'displayValue' => $model->remark? (strlen($model->remark)<=30? $model->remark : substr($model->remark,0,30).'...') : '',
+                        'options' => ['rows' => 5],
+                        'submitOnEnter' => false,
+                        'readonly' => true,
+                        'buttonsTemplate' => '',
+                    ];
+                }
+            ],
+            [
+                'attribute' => 'created_at',
+                'format' => ['date', 'php:Y-m-d H:i:s'],
+            ],
+            [
+                'attribute' => 'updated_at',
+                'format' => ['date', 'php:Y-m-d H:i:s'],
+            ],
+            [
+                'class' => 'kartik\grid\ActionColumn',
+                'template' => '{file-attachments/delete}',
+                'buttons' => [
+                      'file-attachments/delete' => function ($url, $model, $key) {
+                          return Html::a('<span class="glyphicon glyphicon-trash"></span>', ['file-attachments/delete', 'file_attachment_id' => $model->file_attachment_id], [
+                              'title' => Yii::t('common', 'Delete'),
+                              'data' => [
+                                  'confirm' => Yii::t('common', 'Are you sure you want to delete this item?'),
+                                  'method' => 'post',
+                              ],
+                          ]);
+                      },
+                  ],
+            ],
+        ],
+    ]); ?>
+
+    <?php $form = ActiveForm::begin([
+        'action' => ['file-attachments/upload', 'project_id' => $_GET['project_id'], 'file_id' => $_GET['file_id']],
+        'method' => 'post',
+        'options' => ['enctype' => 'multipart/form-data']
+    ]); ?>
+
+    <?php
+    $data = ArrayHelper::map($approvers, 'id', 'username');
+
+    // Tagging support Multiple
+    echo $form->field($approvals, 'approver_id')->widget(Select2::classname(), [
+        'data' => $data,
+        'options' => ['placeholder' => '请选择审批人 ...', 'multiple' => true],
+        'pluginOptions' => [
+            //  'tags' => true,
+            'tokenSeparators' => [',', ' '],
+            'maximumInputLength' => 100
+        ],
+    ]);
+    ?>
+
+
+    <?php
+    // With model & ActiveForm
+    // Note for multiple file upload, the attribute name must be appended with
+    // `[]` for PHP to be able to read an array of files
+    echo $form->field($model, 'upload_file')->widget(FileInput::classname(), [
+        'options' => ['multiple' => false],
+        'pluginOptions' => [
+            // 需要预览的文件格式
+            'previewFileType' => 'any',
+            'allowedFileExtensions' => [
+                'jpg', 'bmp', 'png', 'txt', 'pdf', 'zip', 'rar', 'xls', 'xlsx', 'doc', 'docx', 'ppt', 'pptx'],
+            'maxFileSize'=>10486,
+            // 预览的文件
+            'initialPreview' => $p1,
+            // 需要展示的图片设置，比如图片的宽度等
+            'initialPreviewConfig' => $p2,
+            // 是否展示预览图
+            'initialPreviewAsData' => true,
+            // 异步上传的接口地址设置
+            //  'uploadUrl' => Url::toRoute(['/file-attachments/upload']),
+            // 异步上传需要携带的其他参数，比如material_id等
+            //  'uploadExtraData' => [
+            //      'filename_id' => $id,
+            //  ],
+            'uploadAsync' => false,
+            // 最少上传的文件个数限制
+            'minFileCount' => 1,
+            // 最多上传的文件个数限制
+            'maxFileCount' => 1,
+            // 是否显示[移除]按钮，指input上面的[移除]按钮，非具体图片上的移除按钮
+            'showRemove' => true,
+            // 是否显示[上传]按钮，指input上面的[上传]按钮，非具体图片上的上传按钮
+            'showUpload' => false,
+            // 是否显示[选择]按钮，指input上面的[选择]按钮，非具体图片上的按钮
+            'showBrowse' => true,
+            // 展示图片区域是否可点击选择多文件
+            'browseOnZoneClick' => true,
+            // 如果要设置具体图片上的移除、上传和展示按钮，需要设置该选项
+            'fileActionSettings' => [
+                // 设置具体图片的查看属性为false,默认为true
+                'showZoom' => false,
+                // 设置具体图片的上传属性为true,默认为true
+                'showUpload' => false,
+                // 设置具体图片的移除属性为true,默认为true
+                'showRemove' => true,
+            ],
+        ],
+    ]);
+    ?>
+
+    <div class="form-group">
+        <?= Html::submitButton(Yii::t('common', 'Upload'), ['class' => 'btn btn-success', 'id' => 'upload_submit']) ?>
+    </div>
+
+    <?php ActiveForm::end(); ?>
+</div>
+<?php
+$msg = Yii::t('common', 'Please wait ...');
+$js = <<<JS
+$("form").submit(function() {
+    if ($('#approvals-approver_id').val() && $('#upload-upload_file').val()) {
+        $("#upload_submit").html('$msg').removeClass('btn-success').addClass('btn-default');
+    }
+});
+JS;
+$this->registerJs($js);
+?>
+<?php endif;?>
+

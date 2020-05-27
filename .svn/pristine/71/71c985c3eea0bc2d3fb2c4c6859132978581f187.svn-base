@@ -1,0 +1,953 @@
+<?php
+
+namespace frontend\controllers;
+
+
+use common\models\User;
+use frontend\models\Approver;
+use frontend\models\BomsChild;
+use frontend\models\BomsParent;
+use frontend\models\EcApproval;
+use frontend\models\EcnAltgroup;
+use frontend\models\EcnAttachment;
+use frontend\models\EcnChangeSet;
+use frontend\models\EcnPartUser;
+use frontend\models\EcnPbomAttachment;
+use frontend\models\ExtBomsChild;
+use frontend\models\Materials;
+use frontend\models\ModifyMaterial;
+use Yii;
+use frontend\models\Ecn;
+use frontend\models\EcnSearch;
+use yii\data\ArrayDataProvider;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use frontend\models\Tasks;
+use frontend\models\ExtBomsParent;
+use frontend\models\UserTask;
+
+
+/**
+ * EcnController implements the CRUD actions for Ecn model.
+ *
+ *
+ *
+ */
+class EcnController extends Controller
+{
+    const ECN_CREATE='新增ECN';
+    const ECN_UPDATE = '更新ECN';
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                    'get-bom-parts' => ['POST']
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all Ecn models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+        $searchModel = new EcnSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**
+     * Displays a single Ecn model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id,$type=[31,32,33,34],$idUserTask=-1)
+    {
+        //审批人
+        $taskId = Tasks::find()->where(['type_id'=>$id])->andWhere(['in','type',$type])->one()->id;
+
+        $arrUser = User::find()->select('username,id')->indexBy('id')->column();
+
+        //这个ECN的审批人
+        $mdlEcApproval = EcApproval::findOne(['ec_id'=>$id,'type'=>EcApproval::TYPE_ECN]);
+        //第一级审批
+        $mdlUTTemp = UserTask::find()->where(['task_id'=>$taskId,'user_id'=>$mdlEcApproval->approver1])->one();
+        $arrData[] = [
+            'pid'=>'部门内一级审批',
+            'user_id' =>  $arrUser[$mdlEcApproval->approver1],
+            'status' =>  empty($mdlUTTemp)?null:$mdlUTTemp->status,
+            'remark'=>   empty($mdlUTTemp)?null:$mdlUTTemp->remark,
+            'updated_at' =>  empty($mdlUTTemp)?null:$mdlUTTemp->updated_at,
+            'created_at' =>  empty($mdlUTTemp)?null:$mdlUTTemp->created_at,
+        ];
+        //第二级审批
+        $mdlUTTemp = UserTask::find()->where(['task_id'=>$taskId,'user_id'=>$mdlEcApproval->approver2])->one();
+        $arrData[] = [
+            'pid'=>'部门内二级审批',
+            'user_id' =>  $arrUser[$mdlEcApproval->approver2],
+            'status' =>  empty($mdlUTTemp)?null:$mdlUTTemp->status,
+            'remark'=>   empty($mdlUTTemp)?null:$mdlUTTemp->remark,
+            'updated_at' =>  empty($mdlUTTemp)?null:$mdlUTTemp->updated_at,
+            'created_at' =>  empty($mdlUTTemp)?null:$mdlUTTemp->created_at,
+        ];
+        //第三级审批
+        $mdlTemp = Approver::find()->where(['type'=>Approver::TYPE_LEADERS_ECN])->select('user_id')->indexBy('user_id')->column();
+        unset($mdlTemp[$mdlEcApproval->approver1]);
+        unset($mdlTemp[$mdlEcApproval->approver2]);
+        unset($mdlTemp[$mdlEcApproval->approver4dcc]);
+        $mdlUTTemp = UserTask::find()->where(['task_id'=>$taskId])->andWhere(['in','user_id',$mdlTemp])->all();
+        if(empty($mdlUTTemp))
+        {
+            foreach ($mdlTemp as $val)
+            {
+                $arrData[] = [
+                    'pid'=>'跨部门会签',
+                    'user_id' =>  $arrUser[$val],
+                    'status' =>  null,
+                    'remark'=>   null,
+                    'updated_at' =>  null ,
+                    'created_at' =>  null ,
+                ];
+            }
+        }
+        else
+        {
+            foreach ($mdlUTTemp as $val)
+            {
+                $arrData[] = [
+                    'pid'=>'跨部门会签',
+                    'user_id' =>  $arrUser[$val->user_id],
+                    'status' =>  $val->status,
+                    'remark'=>   $val->remark,
+                    'updated_at' =>  $val->updated_at,
+                    'created_at' =>  $val->created_at,
+                ];
+            }
+        }
+        //第四级审批
+        $mdlUTTemp = UserTask::find()->where(['task_id'=>$taskId,'user_id'=>$mdlEcApproval->approver4dcc])->one();
+        $arrData[] = [
+            'pid'=>'DCC审批',
+            'user_id' =>  $arrUser[$mdlEcApproval->approver4dcc],
+            'status' =>  empty($mdlUTTemp)?null:$mdlUTTemp->status,
+            'remark'=>   empty($mdlUTTemp)?null:$mdlUTTemp->remark,
+            'updated_at' =>  empty($mdlUTTemp)?null:$mdlUTTemp->updated_at,
+            'created_at' =>  empty($mdlUTTemp)?null:$mdlUTTemp->created_at,
+        ];
+        $dataProvider = new ArrayDataProvider([
+            'allModels' =>  $arrData
+        ]);
+
+        //ecn数据
+        $modelEcn = $this->findModel($id);
+
+        if($modelEcn->is_attachment == 1){//为ECN上传的数据
+            $changeSets = '';
+
+        } else
+            $changeSets = EcnChangeSet::findAll(['ecn_id'=>$id]);
+        //附件数据
+        $dataAttachment = EcnAttachment::findOne(['ecn_id'=>$modelEcn->id]);
+        //审批数据
+        $mdlUserTask = null;
+        if($idUserTask != -1)
+        {
+            $mdlUserTask = UserTask::find()->leftJoin('tasks','user_task.task_id=tasks.id')
+                ->select('*,user_task.status as userTaskStatus,tasks.status as taskStatus')
+                ->where(['user_task.id'=>$idUserTask])->one();
+        }
+        //变更后的BOM数据
+        $mdlEcnPbomAttachment = EcnPbomAttachment::find()->where(['ecn_id'=>$modelEcn->id])
+            ->leftJoin('boms_parent','boms_parent.id=ecn_pbom_attachment.pbom_id')
+            ->select('boms_parent.real_material')->column();
+        return $this->render('view', [
+            'modelEcn' => $modelEcn,
+            'dataProvider' => $dataProvider,
+            'changeSets'=>$changeSets,
+            'dataAttachment'=>$dataAttachment,
+            'mdlUserTask'=>$mdlUserTask,
+            'mdlEcnPbomAttachment'=>$mdlEcnPbomAttachment,
+        ]);
+    }
+
+    /**
+     * 检查是否可以建新的ECN
+     */
+    public function actionCheckCreate()
+    {
+        $ecnNewest = Ecn::find()->select('max(id) as maxid')->asArray()->one();
+        if(empty($ecnNewest['maxid']))
+            return json_encode(['status' => 1, 'message' => '', 'data' => []]);
+        $ecnTask = Tasks::find()->select('status')->where(['type_id'=>$ecnNewest['maxid']])
+            ->andWhere(['in','type',[Tasks::TASK_TYPE_ECN1,Tasks::TASK_TYPE_ECN2,Tasks::TASK_TYPE_ECN3,Tasks::TASK_TYPE_ECN4]])
+            ->one();
+        if($ecnTask->status == Tasks::STATUS_APPROVED)
+            return json_encode(['status' => 1, 'message' => '', 'data' => []]);
+        return json_encode(['status' => 0, 'message' => '', 'data' => []]);
+    }
+
+    /**
+     * Creates a new Ecn model
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate($TaskId)
+    {
+        $model = new Ecn();
+        //得到相关联的ECR
+        $EcrId = Tasks::findOne($TaskId)->type_id;
+        //给模型添加上编号，时间，状态，用户等数据
+        $model->addAutoData($EcrId);
+
+        $msg = '';
+
+        if ($model->load(Yii::$app->request->post()))
+        {
+            $transaction = Yii::$app->db->beginTransaction();//开启事务
+            $isSuc = true;//标志着是否保存成功
+            if(!$model->save())//保存ECN
+            {
+                $msg = 'ECN';
+                $isSuc = false;
+            }
+            //BOM的变更
+            if($model->is_attachment == Ecn::BOM_CHNAGE_INPUT){//如果是输入变更
+                if($isSuc == false || !$model->saveChangeSet())//保存变更集合
+                {
+                    $msg = '变更集合';
+                    $isSuc = false;
+                }
+            } else if($model->is_attachment == Ecn::BOM_CHNAGE_UPLOAD) {//如果是上传附件变更
+                $time = time();//当前时间截
+
+                $objChangeSet = $_SESSION['ecnAttachment'];
+                $arrBomParentId = [];
+                //重新整理ECN变更数据，看是不是PCBA，PCBA变更有没有PCB变化
+                $mtrPcb = '';//看是不是更换的pcb,如果为空就不是，如果不为空就是pcb
+                foreach ($objChangeSet as $key1=>$value1)
+                {
+                    $mtr = Materials::find()->where(['zc_part_number'=>$key1])->asArray()->one();
+                    $arrBomParentId[] = $mtr;
+                    foreach ($value1 as $key2=>$value2)
+                    {
+                        $tempMtr = Materials::findOne(['zc_part_number'=>trim($value2['zcNo'])]);
+                        if($tempMtr->part_type == 1093)//如果类型是pcb
+                            $mtrPcb = trim($value2['zcNo']);
+                        $objChangeSet[$key1][$key2]['mtr_id'] = $tempMtr->material_id;
+                    }
+                }
+                //上面（BOM物料存在）如果过了,要查出每个BOM的料
+                foreach ($arrBomParentId as $pMtr)
+                {
+                    //找到要变更的BOM
+                    $mdlParent = ExtBomsParent::findOne(['real_material'=>$pMtr['material_id']]);
+                    //新建上面所有的BOM物料，并建立好联接。
+                    $cache = [];
+                    $newpMtr = $mdlParent->generateUpBomMtr($model->id,true,$mtrPcb,$cache);
+                    if(!is_object($newpMtr))
+                        $isSuc = false;
+                    //新建本ECN的boms_parent
+                    $newPbom = new BomsParent();
+                    if($isSuc){
+                        $newPbom->parent_id = $mdlParent->parent_id;
+                        $newPbom->parent_version = intval($mdlParent->parent_version)+1;
+                        $newPbom->status = ExtBomsParent::STATUS_UNRELEASE;
+                        $newPbom->pv_effect_date = ExtBomsParent::EXPIRE_DATE_TEMPORARY;
+                        $newPbom->pv_expire_date = ExtBomsParent::EXPIRE_DATE_MAX;
+                        $newPbom->type = ExtBomsParent::BOM_TYPE_TRIAL;
+                        $newPbom->creater_id = Yii::$app->user->id;
+                        $newPbom->created_at = $newPbom->updated_at = $time;
+                        $newPbom->real_material = $newpMtr->material_id;
+                        if(!$newPbom->save())
+                            $isSuc = false;
+                    }
+                    if($isSuc){
+                        $mdlParent->pv_expire_date = ExtBomsParent::EXPIRE_DATE_TEMPORARY;
+                        if(!$mdlParent->save())
+                            $isSuc = false;
+                    }
+                    if(!$isSuc)
+                        break;
+                    //存ecn_pbom_attachment
+                    $mdlEcnPbomAttachment = new EcnPbomAttachment();
+                    $mdlEcnPbomAttachment->ecn_id = $model->id;
+                    $mdlEcnPbomAttachment->pbom_id = $newPbom->id;
+                    if(!$mdlEcnPbomAttachment->save())
+                        $isSuc = false;
+
+                    //存boms_child,ECN的主要变更
+                    foreach ($objChangeSet[$pMtr['zc_part_number']] as $infoChange)
+                    {
+                        if($isSuc == false)//如果不成功就跳出
+                            break;
+                        $arrBomsChild=[];
+                        if($infoChange['qtyOld']==0){//增加
+                            $arrBomsChild = [
+                                'boms_parent_id'=>$newPbom->id,
+                                'child_id'=>$infoChange['mtr_id'],
+                                'qty'=>$infoChange['qtyNew'],
+                                'ref_no'=>$infoChange['addRef'],
+                                'zc_part_number2_id'=> empty($infoChange['zcNo2'])?null:Materials::findOne(['zc_part_number' => $infoChange['zcNo2']])->material_id,
+                                'ecn_id'=>$model->id
+                            ];
+                            $newcBom = new ExtBomsChild();
+                            $isSuc = $newcBom->generateSelfByEcn($arrBomsChild);
+                        } else if ($infoChange['qtyNew'] == 0) {//删除
+
+                            $tempMdlBomsChil = BomsChild::find()->where(['boms_parent.parent_id'=>$mdlParent->parent_id])
+                                ->andWhere('boms_child.bom_expire_date='.ExtBomsParent::EXPIRE_DATE_MAX)
+                                ->andWhere(['boms_child.child_id'=>$infoChange['mtr_id']])
+                                ->leftJoin('boms_parent','boms_child.boms_parent_id=boms_parent.id')->one();
+
+                            $tempMdlBomsChil->bom_expire_date = ExtBomsParent::EXPIRE_DATE_TEMPORARY;
+                            if(!$tempMdlBomsChil->save())
+                                $isSuc = false;
+
+                        } else {//替换二供或变数量位置
+                            //变更数量和位置
+                            $tempMdlBomsChil = BomsChild::find()->where(['boms_parent.parent_id' => $mdlParent->parent_id])
+                                ->andWhere('boms_child.bom_expire_date=' . ExtBomsParent::EXPIRE_DATE_MAX)
+                                ->andWhere(['boms_child.child_id' => $infoChange['mtr_id']])
+                                ->leftJoin('boms_parent', 'boms_child.boms_parent_id=boms_parent.id')->one();
+                            //结构电子都要变的地方
+                            $arrBomsChild['qty'] = floatval($infoChange['qtyNew']);
+                            $arrBomsChild['ref_no'] = $tempMdlBomsChil->ref_no;
+                            if (trim($tempMdlBomsChil->ref_no) != '') {//电子料，要考虑位置的变化
+                                $subRef = empty($infoChange['subRef']) ? '' : trim($infoChange['subRef']);
+                                $addRef = empty($infoChange['addRef']) ? '' : trim($infoChange['addRef']);
+                                if ($addRef != $subRef) {//如果位置不一样，说明有替换料
+                                    $subRef = str_replace('，', ',', $subRef);
+                                    $arrSubRef = empty(trim($subRef)) ? [] : explode(',', $subRef);
+                                    $addRef = str_replace('，', ',', $addRef);
+                                    $arrAddRef = empty(trim($addRef)) ? [] : explode(',', $addRef);
+
+                                    //看减掉的料是否在原位置上
+                                    $arrDataRefNo = explode(',', $tempMdlBomsChil->ref_no);
+                                    foreach ($arrSubRef as $ref) {
+                                        $arrDataRefNo = array_diff($arrDataRefNo, [$ref]);
+                                    }
+                                    foreach ($arrAddRef as $ref) {
+                                        $arrDataRefNo[] = $ref;
+                                    }
+                                    natsort($arrDataRefNo);
+                                    $arrBomsChild['ref_no'] = implode(',', $arrDataRefNo);
+                                }
+                            }
+                            //变更二供
+                            $arrBomsChild['zc_part_number2_id'] = $tempMdlBomsChil->zc_part_number2_id;
+                            if (!empty(trim($infoChange['zcNo2']))) {//只有不为空时才对二供处理处理
+                                if ($tempMdlBomsChil->zc_part_number2_id != trim($infoChange['zcNo2'])) {
+
+                                    $tempMtrId = Materials::findOne(['zc_part_number' => $infoChange['zcNo2']])->material_id;
+                                    if ($tempMdlBomsChil->zc_part_number2_id != $tempMtrId)
+                                        $arrBomsChild['zc_part_number2_id'] = $tempMtrId;
+                                }
+                            }
+
+                            $arrBomsChild['boms_parent_id']=$newPbom->id;
+                            $arrBomsChild['child_id']=$infoChange['mtr_id'];
+                            $arrBomsChild['ecn_id']=$model->id;
+
+                            $newcBom = new ExtBomsChild();
+                            $isSuc = $newcBom->generateSelfByEcn($arrBomsChild);
+                            //上个版本减一天
+                            $tempMdlBomsChil->bom_expire_date = ExtBomsParent::EXPIRE_DATE_TEMPORARY;
+                            if(!$tempMdlBomsChil->save())
+                                $isSuc = false;
+                        }
+                    }
+                }
+                if($isSuc){//上传附件
+                    $mdlEcnAttach = new EcnAttachment();
+                    if(!$mdlEcnAttach->saveAttachment($model->id))
+                        $isSuc = false;
+                }
+            }
+            if($isSuc&&!$model->saveApprover())//保存审批人
+            {
+                $msg = '审批人';
+                $isSuc = false;
+            }
+            if($isSuc == true && Tasks::updateAll(['status'=>Tasks::STATUS_APPROVED],['id'=>$TaskId]))//以上保存成功
+            {
+                //提交任务//立即提交或稍后提交成功后就保存到数据库
+                if(Tasks::generateTask(Tasks::TASK_TYPE_ECN1,$model->id,Ecn::ECN_CREATE1))
+                {
+                    //提交到数据库
+                    $transaction->commit();
+                    return $this->redirect(['/tasks/index']);
+                }
+            }
+            $model->isNewRecord = true;
+            Yii::$app->getSession()->setFlash('error', "保存失败".$msg);
+            //不成功回退
+            $transaction->rollBack();
+
+        }
+        //把关联的ECR数据分配给ECN
+        $model->assignEcrDate($EcrId);
+        //Bom的数据
+        $dataBom = BomsParent::find()->leftJoin('materials','materials.material_id = boms_parent.parent_id')
+            ->select('materials.zc_part_number as zc_part_number,boms_parent.id as id')->indexBy('id')->column();
+        //物料的数据
+        $dataMtr = Materials::find()->select('zc_part_number,material_id')->indexBy('material_id')->column();
+        return $this->render('create', [
+            'model' => $model,
+            'dataBom'=>json_encode($dataBom),
+            'dataMtr'=>json_encode($dataMtr),
+            'dataUser'=>$model->getApprovers(),
+        ]);
+    }
+
+    /*
+     * 得到bom的下一级
+     */
+    public function actionGetBomPart($id)
+    {
+        return json_encode(ExtBomsParent::getChildParts($id));
+    }
+
+    /*
+     * 得到多个bom的下一级
+     * ecn读出内容后
+     */
+    public function actionGetBomParts()
+    {
+        if(empty($_POST['objChangeSet']))
+            return json_encode(['status'=>0,'msg'=>'有错误','data'=>['使用了禁用的物料：'=>['ECN附件格式错误或没有数据']]]);
+        $objChangeSet = $_POST['objChangeSet'];
+        $_SESSION['ecnAttachment'] = $objChangeSet;
+        $arrErrorpMtr = [];//如果输入的上级料为空要存来数组，然后报错
+        $arrErrorQty = [];//数量与系统里不一至的
+        $arrErrorQtyRef=[];//数量和位置变化完数量不对
+        $arrErrorSubRef=[];//要减掉的位置不存在
+        $arrErrorcMtr=[];//子物料不存在
+        $arrErrorMtrForbidden=[];//使用了禁用的物料
+        $arrErrorOldPMtr = [];//变更的是禁用的物料
+
+        $arrBomParentId = [];
+        //看有没有这个BOM,如果没有报错
+        foreach ($objChangeSet as $key=>$temp)
+        {
+            $mtr = Materials::find()->where(['zc_part_number'=>$key])->asArray()->one();
+            if(empty($mtr))//如果没有这个料返回去报错
+                $arrErrorpMtr[] = $key;
+            else
+                $arrBomParentId[] = $mtr;
+        }
+
+        $data = [];
+        //上面（BOM物料存在）如果过了,要查出每个BOM的料
+        foreach ($arrBomParentId as $pMtr)
+        {
+            $mdlParent = ExtBomsParent::findOne(['real_material'=>$pMtr['material_id']]);
+            if($mdlParent->status == BomsParent::STATUS_FORBIDDEN){
+                $arrErrorOldPMtr[]=$pMtr['zc_part_number'];
+                continue;
+            }
+
+            $bomTemp = $mdlParent->getChildPartsInfo();
+            $mtrPcb = '';//看是不是更换的pcb,如果为空就不是，如果不为空就是pcb
+            foreach ($objChangeSet[$pMtr['zc_part_number']] as $infoChange)
+            {
+                $cbom = trim($infoChange['zcNo']);
+                $mtrCur = Materials::findOne(['zc_part_number'=>$cbom]);
+
+                if(empty($mtrCur)){//如果没有这科料
+                    $arrErrorcMtr[] = $cbom;
+                    continue;
+                }
+                if($mtrCur->recommend_purchase == ModifyMaterial::RP_FORBIDDEN){//如果物料禁用了，报错
+                    $arrErrorMtrForbidden[] = $cbom;
+                    continue;
+                }
+                if($mtrCur->part_type == 1093)//如果类型是pcb
+                    $mtrPcb = $mtrCur->zc_part_number;
+                if($infoChange['qtyOld']==0){//增加
+                    if(isset($bomTemp[$cbom])){//如果系统bom里有这个料说明添加的数量不对
+                        $arrErrorQty[] = $cbom;
+                        continue;
+                    }
+                    $bomTemp[$cbom]=[
+                        'zc_part_number'=>$cbom,
+                        'qty'=>$infoChange['qtyNew'],'ref_no'=>$infoChange['addRef'],
+                        'zc_part_number2_id'=>empty($infoChange['zcNo2'])?null:$infoChange['zcNo2'],
+                        'changed'=>1
+                    ];
+                } else if ($infoChange['qtyNew'] == 0) {//删除
+                    if(empty($bomTemp[$cbom])){
+                        $arrErrorcMtr[] = $cbom;
+                        continue;
+                    }
+                    if(!isset($infoChange['qtyOld'])||!isset($infoChange['qtyNew'])||//如果填写数量与系统里不一至或没添
+                        (floatval($infoChange['qtyOld']) != floatval($bomTemp[$cbom]['qty']))){
+                        $arrErrorQty[] = $cbom;
+                        continue;
+                    }
+                    unset($bomTemp[$cbom]);
+                } else {//替换二供或变数量位置
+                    if(empty($bomTemp[$cbom])){
+                        $arrErrorcMtr[] = $cbom;
+                        continue;
+                    }
+
+                    if(!isset($infoChange['qtyOld'])||!isset($infoChange['qtyNew'])||//如果填写数量与系统里不一至或没添
+                        (floatval($infoChange['qtyOld']) != floatval($bomTemp[$cbom]['qty']))){
+                        $arrErrorQty[] = $cbom;
+                        continue;
+                    }
+                    //变更数量和位置
+                    if(trim($bomTemp[$cbom]['ref_no']) == ''){//说明是结构料号，直接改数量
+                        $bomTemp[$cbom]['qty']=floatval($infoChange['qtyNew']);
+                        $bomTemp[$cbom]['changed']=1;
+                    } else {//电子料，要考虑位置的变化
+                        $subRef = empty($infoChange['subRef'])?'':trim($infoChange['subRef']);
+                        $addRef = empty($infoChange['addRef'])?'':trim($infoChange['addRef']);
+                        if($addRef != $subRef){//说明有替换料
+                            $subRef = str_replace('，',',',$subRef);
+                            $arrSubRef = empty(trim($subRef))?[]:explode(',',$subRef);
+                            $addRef = str_replace('，',',',$addRef);
+                            $arrAddRef = empty(trim($addRef))?[]:explode(',',$addRef);
+                            $qtySubRef = count($arrSubRef);
+                            $qtyAddRef = count($arrAddRef);
+                            //如果计算完的数量不等于减后的数量要报错
+                            if($infoChange['qtyOld']-$qtySubRef+$qtyAddRef != $infoChange['qtyNew']) {
+                                $arrErrorQtyRef[] = $cbom;
+                                continue;
+                            }
+                            //看减掉的料是否在原位置上
+                            $arrDataRefNo = explode(',',$bomTemp[$cbom]['ref_no']);
+                            foreach ($arrSubRef as $ref){
+                                if(false === strpos($bomTemp[$cbom]['ref_no'],$ref)) {//说明填写的料不存在
+                                    $arrErrorSubRef[$cbom][] = $ref;
+                                    continue;
+                                } else {
+                                    $arrDataRefNo = array_diff($arrDataRefNo, [$ref]);
+                                }
+                            }
+                            //增加位置
+                            foreach ($arrAddRef as $ref){
+                                $arrDataRefNo[] = $ref;
+                            }
+                            natsort($arrDataRefNo);
+                            $bomTemp[$cbom]['ref_no'] = implode(',',$arrDataRefNo);
+                            $bomTemp[$cbom]['qty']=floatval($infoChange['qtyNew']);
+                            $bomTemp[$cbom]['changed']=1;
+                        }
+                    }
+                    //变更二供
+                    if($bomTemp[$cbom]['zc_part_number2_id'] != $infoChange['zcNo2'])
+                        $bomTemp[$cbom]['zc_part_number2_id'] = $infoChange['zcNo2'];
+                }
+            }
+            $pMtr['children'] = array_values($bomTemp);
+            $pMtr['id'] = $pMtr['material_id'];
+            $pMtr['boms_parent_id'] = null;
+            $pMtr['child_id'] = $pMtr['material_id'];
+            $pMtr['bom_expire_date'] = null;
+            $pMtr['qty'] = null;
+            $pMtr['ref_no'] = null;
+            $pMtr['zc_part_number2_id'] = null;
+            $pMtr['zc_part_number3_id'] = null;
+            $pMtr['zc_part_number4_id'] = null;
+            $pMtr['created_at'] = null;
+            $pMtr['updated_at'] = null;
+            if($mtrPcb == '')
+                $pMtr['zc_part_number'] = $mdlParent->upgradeZcPartNo($pMtr['zc_part_number']);
+            else{
+                $mtrPcb[0] = 'P';
+                $pMtr['zc_part_number'] = $mtrPcb;
+            }
+
+            $data[]=$pMtr;
+        }
+        if(!empty($arrErrorpMtr)||!empty($arrErrorQty)||!empty($arrErrorSubRef)||!empty($arrErrorQtyRef)||
+            !empty($arrErrorcMtr)||!empty($arrErrorMtrForbidden)||!empty($arrErrorOldPMtr)) {
+            $dataError['系统无此Parent No.'] = $arrErrorpMtr;
+            $dataError['系统无此Zhiche Part No.'] = $arrErrorcMtr;
+            $dataError['物料用量与原BOM不符合：'] = $arrErrorQty;
+            $dataError['填写的点位与原BOM不符合：'] = $arrErrorSubRef;
+            $dataError['用量与点位数量不符合：'] = $arrErrorQtyRef;
+            $dataError['使用了禁用的物料：'] = $arrErrorMtrForbidden;
+            $dataError['变更的是禁用的BOM：'] = $arrErrorOldPMtr;
+            return json_encode(['status'=>0,'msg'=>'有错误','data'=>$dataError]);
+        }
+        return json_encode(['status'=>1,'msg'=>'成功','data'=>$data]);
+    }
+
+    /*
+     * 去掉位置
+     */
+    public function removeRef()
+    {
+
+    }
+
+    /*
+     * 增加位置
+     */
+    public function addRef()
+    {
+
+    }
+
+
+    /*
+     * 得到这个part的位置和数量
+     */
+    public function actionGetPosQty($id)
+    {
+        return json_encode(ExtBomsParent::getPosQty($id));
+    }
+
+    /**老的版本，不用了
+     * 更新的思路:
+     *  1.如果点击的是退回,是要把已经变了的bom删除掉.
+     *  2.更新时要把EcnChangeSet对多个EcnPartUser对多个EcnAltGroup删掉,把新的保存.
+     * Updates an existing Ecn model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    /*public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+        $model->addAutoData();//更新下时间
+        if ($model->load(Yii::$app->request->post())) {
+            $transaction = Yii::$app->db->beginTransaction();//开户事务
+            $isSuc = true;//标志着是否更新成功
+            if(!$model->save())//更新ECN
+                $isSuc = false;
+            //得到跟这个ECN有关的使用者id
+            $delPartUser = EcnPartUser::find()->leftJoin('ecn_change_set','ecn_part_user.ecn_change_id=ecn_change_set.id')
+                ->where('ecn_change_set.ecn_id='.$id)->select('ecn_part_user.id as PartUserId')->column();
+
+            //得到跟这个ECN有关的群组id
+            $delAltGroup = EcnAltgroup::find()->innerJoin('ecn_part_user','ecn_part_user.id=ecn_altgroup.part_user_id')
+                ->where(['in','ecn_altgroup.part_user_id',$delPartUser])->select('ecn_altgroup.id as AltgroupId')->column();
+            //更新是要把之前全删掉，然后再保存当前的数据
+            EcnPartUser::deleteAll(['in','id',$delPartUser]);
+            EcnChangeSet::deleteAll(['ecn_id'=>$id]);
+            if($isSuc == false || !$model->saveChangeSet())//更新变更集合
+                $isSuc = false;
+
+            if(!empty($delAltGroup))
+                EcnAltgroup::deleteAll(['in','id',$delAltGroup]);
+            if($isSuc&&!$model->saveApprover(true))//保存审批人
+                $isSuc = false;
+
+            if($isSuc)//更新审批任务:把之前的全删掉
+            {
+                $taskId = $model->tasks->id;
+                UserTask::deleteAll(['task_id'=>$taskId]);
+                //把以前的二审三审变回到一审
+                $mdlTasks = Tasks::findOne($taskId);
+                $mdlTasks->name = Ecn::ECN_CREATE1;
+                $mdlTasks->type = Tasks::TASK_TYPE_ECN1;
+                $mdlTasks->status = Tasks::STATUS_COMMITED;
+                if(!$mdlTasks->save())
+                    $isSuc = false;
+                //按更新后的审批人生成新的审批任务
+                if($isSuc&&!UserTask::GenerateUserTask([$model->approver1],$taskId))
+                    $isSuc=false;
+            }
+
+            if($isSuc == true)//以上保存成功
+            {
+                $transaction->commit();
+                return $this->redirect(['/tasks/index']);
+            }
+            //不成功回退
+            Yii::$app->getSession()->setFlash('error', "更新失败");
+            $transaction->rollBack();
+        }
+        //审批人数据
+        $mdlEcApp = EcApproval::findOne(['ec_id'=>$model->id,'type'=>EcApproval::TYPE_ECN]);
+        $model->approver1 = $mdlEcApp->approver1;
+        $model->approver2 = $mdlEcApp->approver2;
+        $model->approver4dcc = $mdlEcApp->approver4dcc;
+
+        return $this->render('update', [
+            'model' => $model,
+            'changeSet'=>$model->getDataUpdate(),
+            'dataUser'=>$model->getApprovers(),
+        ]);
+    }
+    */
+
+    /**
+     * ecn更新
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+        $model->addAutoData();//更新下时间
+        if ($model->load(Yii::$app->request->post())) {
+            $transaction = Yii::$app->db->beginTransaction();//开启事务
+            $isSuc = true;//标志着是否保存成功
+            if(!$model->save())//保存ECN
+            {
+                $msg = 'ECN';
+                $isSuc = false;
+            }
+            //BOM的变更
+            if($model->is_attachment == Ecn::BOM_CHNAGE_INPUT){//如果是输入变更
+                if($isSuc == false || !$model->saveChangeSet())//保存变更集合
+                {
+                    $msg = '变更集合';
+                    $isSuc = false;
+                }
+            } else if($model->is_attachment == Ecn::BOM_CHNAGE_UPLOAD) {//如果是上传附件变更
+                $time = time();//当前时间截
+
+                $objChangeSet = $_SESSION['ecnAttachment'];
+                $arrBomParentId = [];
+                //重新整理ECN变更数据，看是不是PCBA，PCBA变更有没有PCB变化
+                $mtrPcb = '';//看是不是更换的pcb,如果为空就不是，如果不为空就是pcb
+                foreach ($objChangeSet as $key1=>$value1)
+                {
+                    $mtr = Materials::find()->where(['zc_part_number'=>$key1])->asArray()->one();
+                    $arrBomParentId[] = $mtr;
+                    foreach ($value1 as $key2=>$value2)
+                    {
+                        $tempMtr = Materials::findOne(['zc_part_number'=>trim($value2['zcNo'])]);
+                        if($tempMtr->part_type == 1093)//如果类型是pcb
+                            $mtrPcb = trim($value2['zcNo']);
+                        $objChangeSet[$key1][$key2]['mtr_id'] = $tempMtr->material_id;
+                    }
+                }
+                //上面（BOM物料存在）如果过了,要查出每个BOM的料
+                foreach ($arrBomParentId as $pMtr)
+                {
+                    //找到要变更的BOM
+                    $mdlParent = ExtBomsParent::findOne(['real_material'=>$pMtr['material_id']]);
+                    //新建上面所有的BOM物料，并建立好联接。
+                    $cache = [];
+                    $newpMtr = $mdlParent->generateUpBomMtr($model->id,true,$mtrPcb,$cache);
+                    if(!is_object($newpMtr))
+                        $isSuc = false;
+                    //新建本ECN的boms_parent
+                    $newPbom = new BomsParent();
+                    if($isSuc){
+                        $newPbom->parent_id = $mdlParent->parent_id;
+                        $newPbom->parent_version = intval($mdlParent->parent_version)+1;
+                        $newPbom->status = ExtBomsParent::STATUS_UNRELEASE;
+                        $newPbom->pv_effect_date = ExtBomsParent::EXPIRE_DATE_TEMPORARY;
+                        $newPbom->pv_expire_date = ExtBomsParent::EXPIRE_DATE_MAX;
+                        $newPbom->type = ExtBomsParent::BOM_TYPE_TRIAL;
+                        $newPbom->creater_id = Yii::$app->user->id;
+                        $newPbom->created_at = $newPbom->updated_at = $time;
+                        $newPbom->real_material = $newpMtr->material_id;
+                        if(!$newPbom->save())
+                            $isSuc = false;
+                    }
+                    if($isSuc){
+                        $mdlParent->pv_expire_date = ExtBomsParent::EXPIRE_DATE_TEMPORARY;
+                        if(!$mdlParent->save())
+                            $isSuc = false;
+                    }
+                    if(!$isSuc)
+                        break;
+                    //存ecn_pbom_attachment
+                    $mdlEcnPbomAttachment = new EcnPbomAttachment();
+                    $mdlEcnPbomAttachment->ecn_id = $model->id;
+                    $mdlEcnPbomAttachment->pbom_id = $newPbom->id;
+                    if(!$mdlEcnPbomAttachment->save())
+                        $isSuc = false;
+
+                    //存boms_child,ECN的主要变更
+                    foreach ($objChangeSet[$pMtr['zc_part_number']] as $infoChange)
+                    {
+                        if($isSuc == false)//如果不成功就跳出
+                            break;
+                        $arrBomsChild=[];
+                        if($infoChange['qtyOld']==0){//增加
+                            $arrBomsChild = [
+                                'boms_parent_id'=>$newPbom->id,
+                                'child_id'=>$infoChange['mtr_id'],
+                                'qty'=>$infoChange['qtyNew'],
+                                'ref_no'=>$infoChange['addRef'],
+                                'zc_part_number2_id'=> empty($infoChange['zcNo2'])?null:Materials::findOne(['zc_part_number' => $infoChange['zcNo2']])->material_id,
+                                'ecn_id'=>$model->id
+                            ];
+                            $newcBom = new ExtBomsChild();
+                            $isSuc = $newcBom->generateSelfByEcn($arrBomsChild);
+                        } else if ($infoChange['qtyNew'] == 0) {//删除
+
+                            $tempMdlBomsChil = BomsChild::find()->where(['boms_parent.parent_id'=>$mdlParent->parent_id])
+                                ->andWhere('boms_child.bom_expire_date='.ExtBomsParent::EXPIRE_DATE_MAX)
+                                ->andWhere(['boms_child.child_id'=>$infoChange['mtr_id']])
+                                ->leftJoin('boms_parent','boms_child.boms_parent_id=boms_parent.id')->one();
+
+                            $tempMdlBomsChil->bom_expire_date = ExtBomsParent::EXPIRE_DATE_TEMPORARY;
+                            if(!$tempMdlBomsChil->save())
+                                $isSuc = false;
+
+                        } else {//替换二供或变数量位置
+                            //变更数量和位置
+                            $tempMdlBomsChil = BomsChild::find()->where(['boms_parent.parent_id' => $mdlParent->parent_id])
+                                ->andWhere('boms_child.bom_expire_date=' . ExtBomsParent::EXPIRE_DATE_MAX)
+                                ->andWhere(['boms_child.child_id' => $infoChange['mtr_id']])
+                                ->leftJoin('boms_parent', 'boms_child.boms_parent_id=boms_parent.id')->one();
+                            //结构电子都要变的地方
+                            $arrBomsChild['qty'] = floatval($infoChange['qtyNew']);
+                            $arrBomsChild['ref_no'] = $tempMdlBomsChil->ref_no;
+                            if (trim($tempMdlBomsChil->ref_no) != '') {//电子料，要考虑位置的变化
+                                $subRef = empty($infoChange['subRef']) ? '' : trim($infoChange['subRef']);
+                                $addRef = empty($infoChange['addRef']) ? '' : trim($infoChange['addRef']);
+                                if ($addRef != $subRef) {//如果位置不一样，说明有替换料
+                                    $subRef = str_replace('，', ',', $subRef);
+                                    $arrSubRef = empty(trim($subRef)) ? [] : explode(',', $subRef);
+                                    $addRef = str_replace('，', ',', $addRef);
+                                    $arrAddRef = empty(trim($addRef)) ? [] : explode(',', $addRef);
+
+                                    //看减掉的料是否在原位置上
+                                    $arrDataRefNo = explode(',', $tempMdlBomsChil->ref_no);
+                                    foreach ($arrSubRef as $ref) {
+                                        $arrDataRefNo = array_diff($arrDataRefNo, [$ref]);
+                                    }
+                                    foreach ($arrAddRef as $ref) {
+                                        $arrDataRefNo[] = $ref;
+                                    }
+                                    natsort($arrDataRefNo);
+                                    $arrBomsChild['ref_no'] = implode(',', $arrDataRefNo);
+                                }
+                            }
+                            //变更二供
+                            $arrBomsChild['zc_part_number2_id'] = $tempMdlBomsChil->zc_part_number2_id;
+                            if (!empty(trim($infoChange['zcNo2']))) {//只有不为空时才对二供处理处理
+                                if ($tempMdlBomsChil->zc_part_number2_id != trim($infoChange['zcNo2'])) {
+
+                                    $tempMtrId = Materials::findOne(['zc_part_number' => $infoChange['zcNo2']])->material_id;
+                                    if ($tempMdlBomsChil->zc_part_number2_id != $tempMtrId)
+                                        $arrBomsChild['zc_part_number2_id'] = $tempMtrId;
+                                }
+                            }
+
+                            $arrBomsChild['boms_parent_id']=$newPbom->id;
+                            $arrBomsChild['child_id']=$infoChange['mtr_id'];
+                            $arrBomsChild['ecn_id']=$model->id;
+
+                            $newcBom = new ExtBomsChild();
+                            $isSuc = $newcBom->generateSelfByEcn($arrBomsChild);
+                            //上个版本减一天
+                            $tempMdlBomsChil->bom_expire_date = ExtBomsParent::EXPIRE_DATE_TEMPORARY;
+                            if(!$tempMdlBomsChil->save())
+                                $isSuc = false;
+                        }
+                    }
+                }
+                if($isSuc){//上传附件
+                    $mdlEcnAttach = new EcnAttachment();
+                    if(!$mdlEcnAttach->saveAttachment($model->id))
+                        $isSuc = false;
+                }
+            }
+
+            if($isSuc&&!$model->saveApprover())//保存审批人
+            {
+                $msg = '审批人';
+                $isSuc = false;
+            }
+            if($isSuc == true)//以上保存成功
+            {
+
+                $taskId = $model->tasks->id;
+                UserTask::deleteAll(['task_id'=>$taskId]);
+                //把以前的二审三审变回到一审
+                $mdlTasks = Tasks::findOne($taskId);
+                $mdlTasks->name = Ecn::ECN_CREATE1;
+                $mdlTasks->status = Tasks::STATUS_COMMITED;
+                $mdlTasks->type = Tasks::TASK_TYPE_ECN1;
+                if(!$mdlTasks->save())
+                    $isSuc = false;
+                //按更新后的审批人生成新的审批任务
+                if($isSuc&&UserTask::GenerateUserTask([$model->approver1],$taskId)){
+                    //提交到数据库
+                    $transaction->commit();
+                    return $this->redirect(['/tasks/index']);
+                }
+            }
+            Yii::$app->getSession()->setFlash('error', "保存失败".$msg);
+            //不成功回退
+            $transaction->rollBack();
+        }
+        //审批人数据
+        $mdlEcApp = EcApproval::findOne(['ec_id'=>$model->id,'type'=>EcApproval::TYPE_ECN]);
+        $model->approver1 = $mdlEcApp->approver1;
+        $model->approver2 = $mdlEcApp->approver2;
+        $model->approver4dcc = $mdlEcApp->approver4dcc;
+
+        return $this->render('update', [
+            'model' => $model,
+            'changeSet'=>$model->getDataUpdate(),
+            'dataUser'=>$model->getApprovers(),
+        ]);
+    }
+
+    /**
+     * Deletes an existing Ecn model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the Ecn model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return Ecn the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = Ecn::findOne($id)) !== null) {
+            $model->assignEcrDate($model->ecr_id);
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    /**
+     * 寻找使用者的函数，返回该料的上一级
+     */
+    public function actionGetUpperLvl($id_child,$changeType,$id)
+    {
+        $arrData = ExtBomsParent::getParentByChild($id_child,$changeType,$id)->asArray()->all();
+
+        return json_encode(['status' => 1, 'message' => '', 'data' => $arrData]);
+    }
+
+    /*
+     * ecn下载
+     */
+    public function actionDownloadEcn()
+    {
+        Yii::$app->response->sendFile('../uploads/bom_template/ecn.xls');
+    }
+
+
+
+
+}

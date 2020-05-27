@@ -1,0 +1,126 @@
+<?php
+
+namespace frontend\models;
+
+use backend\models\AuthAssignment;
+use backend\models\DepartmentUser;
+use Yii;
+use common\models\User;
+
+/**
+ * This is the model class for table "ecr".
+ * 由于开始设计时，ecr和ecn有很多共性，相同的审批人，更新等。后来改需求后，共性不多了。这个类可以考虑干掉（有时间）2018-3-7
+ * @property integer $id
+ * @property string $serial_number
+ * @property string $reason
+ * @property string $detail
+ * @property string $module
+ * @property integer $created_at
+ * @property integer $updated_at
+ * @property integer $status
+ */
+class EcrAndEcn extends \yii\db\ActiveRecord
+{
+    //审批人
+    public $approver1,$approver2,$approver3,$approver4dcc;
+
+
+    public function rules()
+    {
+        return [
+            [['approver1','approver2','approver4dcc'],'required']
+        ];
+    }
+
+
+    public function attributeLabels()
+    {
+        return [
+            'approver1'=>'部门内一级审批',
+            'approver2'=>'部门内二级审批',
+            'approver3'=>'审批团',
+            'approver4dcc'=>'dcc审批'
+        ];
+    }
+
+    /**
+     * 给模型添加上编号，时间，状态，用户等数据
+     */
+    public function addAutoData($EcrId=0)
+    {
+        if($this->isNewRecord)
+        {
+            //给时间，用户赋值
+            $this->created_at = $this->updated_at = time();
+            /////给编号赋值//////
+            //分辨是ECR还是ECN
+            if(strpos(strtolower(self::className()),'ecr')!==false)//ECR
+                $strTemp = 'ECR-A-'.date('ymd',time()).'-';
+            else//ECN
+            {
+                $strTemp = 'ECN-A-'.date('ymd',time()).'-';
+                $this->ecr_id = $EcrId;
+            }
+            $model = self::find()->where(['like','serial_number',$strTemp.'%',false])->select('serial_number')->column();
+            $this->serial_number = $strTemp.'001';//如果为空，默认为1号
+            if(!empty($model))//如果不为空要找到最大值加1再赋值
+            {
+                rsort($model);//找到今天编号 的最大的值
+                //先截取后三位加1，再补0，再拼接前面的编号
+                $this->serial_number = $strTemp.str_pad((substr($model[0],-3,3)+1),3,"0",STR_PAD_LEFT);
+            }
+        }
+        else
+            $this->updated_at = time();
+    }
+
+    /*
+     * 得到审批人
+     */
+    public function getApprovers()
+    {
+        $dataUser[1] = User::getDepartmentUser();
+        $dataUser[2] = Approver::getApprovers(Approver::TYPE_LEADERS_ECR);
+        $dataUser[3] = AuthAssignment::getRoleUser('DCC');
+        return $dataUser;
+    }
+
+    /**
+     * 保存审批人
+     */                                 //新建还是更新
+    public function saveApprover($update=false)
+    {
+        //看保存的是ECR的还是ECN
+        $type = EcApproval::TYPE_ECN;
+        if(strpos(strtolower(self::className()),'ecr')!==false)//ecr
+            $type = EcApproval::TYPE_ECR;
+        //更新还是新建
+        if($update == false)
+            $modelApprove = new EcApproval();
+        else
+            $modelApprove = EcApproval::findOne(['type'=>$type,'ec_id'=>$this->id]);
+        if($type == EcApproval::TYPE_ECR)
+            $modelApprove->approver3 = Approver::TYPE_LEADERS_ECR;
+        else
+            $modelApprove->approver3 = Approver::TYPE_LEADERS_ECN;
+
+        $modelApprove->approver1 = $this->approver1;
+        $modelApprove->approver2 = $this->approver2;
+        $modelApprove->approver4dcc = $this->approver4dcc;
+        $modelApprove->type = $type;
+        $modelApprove->ec_id = $this->id;
+        if($modelApprove->save())
+            return true;
+        return false;
+    }
+
+
+    //关联任务表///////////////////////////
+    public function getTasks()
+    {
+        $id=$this->id;
+        return $this->hasOne(Tasks::className(),['type'=>'type'])->andWhere('type_id='.$id);
+    }
+
+
+}

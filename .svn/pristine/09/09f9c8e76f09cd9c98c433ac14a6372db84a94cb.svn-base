@@ -1,0 +1,268 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\ActiveForm;
+use kartik\select2\Select2;
+use kartik\file\FileInput;
+use yii\helpers\Url;
+use kartik\dialog\Dialog;
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\Ecr */
+/* @var $form yii\widgets\ActiveForm */
+?>
+
+<div class="ecr-form">
+
+    <?php $form = ActiveForm::begin(['options' => ['enctype' => 'multipart/form-data']]); ?>
+    <input id="taskRemark" type="hidden" name="taskRemark">
+    <input id="taskCommit" type="hidden" name="taskCommit">
+    <h3>ECR内容</h3>
+    <div class="row">
+        <?php
+
+        $pjtName = [''=>'']+$pjtName;
+
+        echo $form->field($model, 'project_id',['template'=>'<div class="col-md-1">{label}</div><div class="col-md-2">{input}</div>{error}',])
+            ->dropDownList($pjtName,[
+                    'maxlength' => true,
+                    'placeholder'=>'选择项目',
+                    'onchange'=>'
+                        $.post("/ecr/get-project-process",{id:$(this).val()},function(json){
+                            $("#ecr-project_process_id").html(json);
+                        });
+                    ',]
+            )->label('项目名称:');
+        ?>
+    </div>
+    <br>
+    <div class="row">
+        <?php
+        echo $form->field($model, 'project_process_id',
+            [
+                'template'=>'<div class="col-md-1">{label}</div><div class="col-md-2">{input}</div>{error}',
+                //'options' => ['class' => '']
+            ])
+            ->dropDownList(empty($projectProcess)? [] : \yii\helpers\ArrayHelper::map($projectProcess, 'id', 'name'),['maxlength' => true])
+            ->label('项目阶段:');
+        ?>
+    </div>
+    <br>
+    <div class="row">
+        <?php
+        //如果是更新
+        $value = '';
+        if(!$model->isNewRecord)
+        {
+            $dataTemp = json_decode($dataMtrDescription,true);
+            $value = $dataTemp[$model->bom_id];
+        }
+
+        echo $form->field($model, 'bom_id',
+            [
+                'template'=>'<div class="col-md-1">{label}</div><div class="col-md-2">{input}</div>{error}',
+                'options' => ['class' => ''],
+            ])->widget(Select2::className(),[
+                    'data' => $dataMtrPartNo,
+                    'options' => ['placeholder' => '请选择料号 ...'],
+                    'pluginEvents'=> [
+                        "change" => "function() { 
+                            var desVal = $(this).val();
+                            $('#mtr-description').val(dataMtrDescription[desVal]);
+                        }",
+                    ],
+
+            ])->label('机种智车料号:');
+        echo '<div class="col-md-4">
+                <input id="mtr-description" value="'.$value.'" class="form-control" readonly="" maxlength="255"  type="text">
+            </div>';
+        ?>
+    </div>
+    <br>
+    <div class="row">
+        <?php
+        echo $form->field($model, 'reason',
+            [
+                'template'=>'<div class="col-md-1">{label}</div><div class="col-md-6">{input}</div>{error}',
+                //'options' => ['class' => '']
+            ])
+            ->textarea(['rows' => 6,'placeholder'=>'用于描述变更的起因、设计变更的物料料号等。'])
+            ->label('变更背景:');
+        ?>
+    </div>
+    <br>
+    <div class="row">
+        <?php
+        echo $form->field($model, 'detail',
+            [
+                'template'=>'<div class="col-md-1">{label}</div><div class="col-md-6">{input}</div>{error}',
+                //'options' => ['class' => '']
+            ])
+            ->textarea(['rows' => 6,'placeholder'=>'可用分条描述成对比描述方式'])->label('变更内容:');
+        ?>
+    </div>
+    <br>
+    <div class="row">
+        <?php
+        echo $form->field($model, 'effect_range',
+            [
+                'template'=>'<div class="col-md-1">{label}</div><div class="col-md-6">{input}</div>{error}',
+                //'options' => ['class' => '']
+            ])
+            ->textarea(['rows' => 6,'placeholder'=>'影响范围'])->label('影响范围:');
+        ?>
+    </div>
+    <br><br><br>
+    <h3>附件</h3>
+    <div class="row">
+        <div class="col-md-9">
+            <?php
+            echo FileInput::widget([
+                    'model' => $model,
+                    'attribute' => 'uploadFile[]',
+                    'options' => ['multiple' => true],
+                    'pluginOptions' => [
+
+                        // 异步上传的接口地址设置
+                        'uploadUrl' => Url::toRoute(['/attachments/async-upload']),
+                        // 异步上传需要携带的其他参数，比如material_id等
+//                        'uploadExtraData' => [
+//                            //'material_id' => $id,
+//                        ],
+                        //'uploadAsync' => true,
+
+                        // 需要预览的文件格式
+                        'allowedFileExtensions' => [
+                            'jpg', 'bmp', 'png', 'txt', 'pdf', 'xls', 'xlsx', 'doc', 'docx', 'ppt', 'pptx'],
+                        'maxFileSize'=>10486,
+                        // 预览的文件
+                        'initialPreview' => empty($preview)?[]:$preview,
+                        'initialPreviewConfig' => empty($previewCfg)?[]:$previewCfg,
+                        'initialPreviewAsData'=>true,
+                        //上传最大
+                        'maxFileCount' => 5,
+                        'dropZoneTitle'=>'',
+                        'dropZoneEnabled'=>false,
+                        'dropZoneClickTitle'=>'点击可选择上传多个文件',
+                        //编辑框边不显示的三个按钮
+//                        'showCaption'=> false,
+                        'showRemove' => false,
+                        'showUpload' => false,
+//                        'showBrowse' => false,
+                        //上传新的不把以前的冲掉
+                        'overwriteInitial'=>false,
+
+                        //每个文件的选项
+                        'fileActionSettings' => ['showUpload' => false,'showZoom'=>false],
+                        // 展示图片区域是否可点击选择多文件
+                        'browseOnZoneClick' => true,
+                    ],
+                ]);
+            ?>
+        </div>
+    </div>
+
+    <h2>审批人</h2>
+    <div class="row">
+        <div class="col-md-2">
+            <?= $form->field($model, 'approver1')->widget(Select2::className(),[
+                'data' => $dataUser[1],
+                'options' => ['placeholder' => '请选择审批人 ...'],
+                'pluginOptions' => ['tokenSeparators' => [',', ' ']],
+            ]) ?>
+        </div>
+        <div class="col-md-2">
+            <?= $form->field($model, 'approver2')->widget(Select2::className(),[
+                'data' => $dataUser[1],
+                'options' => ['placeholder' => '请选择审批人 ...'],
+                'pluginOptions' => ['tokenSeparators' => [',', ' ']],
+            ]) ?>
+        </div>
+        <div class="col-md-2">
+            <?= $form->field($model, 'approver4dcc')->widget(Select2::className(),[
+                'data' => $dataUser[3],
+                'options' => ['placeholder' => '请选择审批人 ...'],
+                'pluginOptions' => ['tokenSeparators' => [',', ' ']],
+            ]) ?>
+        </div>
+    </div>
+
+    <br><br><br>
+    <div class="form-group">
+        <?= Html::Button($model->isNewRecord ? Yii::t('common', 'Create') : Yii::t('common', 'Update'),
+            ['class' => $model->isNewRecord ? 'btn btn-success' : 'btn btn-primary','id'=>'btn-submit']); ?>
+    </div>
+
+    <?php ActiveForm::end(); ?>
+
+</div>
+
+<?php
+//弹框控件，其它默认，prompt框改下默认的配置
+echo Dialog::widget([
+    'dialogDefaults'=>[
+
+        Dialog::DIALOG_PROMPT => [
+            'draggable' => true,
+            'closable' => true,
+            'title' => '是否马上提交任务',
+            'buttons' => [
+                [
+                    'label' => '稍后提交任务',
+                    'icon' => Dialog::ICON_CANCEL
+                ],
+                [
+                    'label' => '马上提交任务',
+                    'icon' => Dialog::ICON_OK,
+                    'class' => 'btn-primary'
+                ],
+            ]
+        ],
+
+    ]
+]);
+$js = <<<JS
+
+var dataMtrDescription={$dataMtrDescription};
+
+/**
+* 提交表单的按钮
+*/
+$('#btn-submit').on('click',function() {
+    krajeeDialog.prompt({label:'备注', placeholder:'任务的备注...'}, function (result) {
+        if (result!=null) 
+        {
+            $('#taskRemark').val(result);
+            $('#taskCommit').val('1');
+        }
+        else 
+        {
+            $('#taskRemark').val('');
+            $('#taskCommit').val('0');
+        }      
+        
+        //检查审批人是否相同
+        var checkApprover1=$('#ecr-approver1').val();
+        var checkApprover2=$('#ecr-approver2').val();
+        var checkApprover4=$('#ecr-approver4dcc').val();
+        if(checkApprover1 == checkApprover2){
+            alert('审批人不能相同');return;
+        }
+        if(checkApprover1 == checkApprover2||checkApprover2 == checkApprover4){
+            alert('审批人不能相同');return;
+        }
+        if(checkApprover1 == checkApprover2||checkApprover2 == checkApprover4||checkApprover1 == checkApprover4){
+            alert('审批人不能相同');return;
+        }
+
+        
+        $('#w0').submit();
+    });
+});
+
+
+JS;
+$this->registerJs($js);
+
+
+?>

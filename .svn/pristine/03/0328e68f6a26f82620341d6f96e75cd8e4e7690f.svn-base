@@ -1,0 +1,266 @@
+<?php
+
+namespace frontend\controllers;
+
+use frontend\models\EcApproval;
+use Yii;
+use frontend\models\Ecr;
+use frontend\models\EcrSearch;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use yii\web\UploadedFile;
+use common\components\CommonFunc;
+use frontend\models\EcrAttachment;
+use frontend\models\Tasks;
+use frontend\models\UserTask;
+use yii\data\ActiveDataProvider;
+
+/**
+ * EcrController implements the CRUD actions for Ecr model.
+ */
+class EcrController extends Controller
+{
+    const ECR_CREATE='新增ECR';
+    const ECR_UPDATE = '更新ECR';
+
+
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all Ecr models.
+     * @return mixed
+     */
+    public function actionIndex()
+    {
+        $searchModel = new EcrSearch();
+        $dataProvider = $searchModel->search(Yii::$app->request->queryParams);
+        return $this->render('index', [
+            'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+        ]);
+    }
+
+    /**
+     * Displays a single Ecr model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        //审批人
+        $taskId = Tasks::findOne(['type'=>Tasks::TASK_TYPE_ECR,'type_id'=>$id])->id;
+        $query = UserTask::find()->where(['task_id'=>$taskId]);
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+        ]);
+
+        //附件
+        $dataAttachment = new ActiveDataProvider([
+            'query' => EcrAttachment::find()->where(['ecr_id'=>$id])
+        ]);
+
+        return $this->render('view', [
+            'model' => $this->findModel($id),
+            'dataProvider' => $dataProvider,
+            'dataAttachment'=>$dataAttachment,
+        ]);
+
+    }
+
+    /**
+     * Creates a new Ecr model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate()
+    {
+        $model = new Ecr();
+        $model->addAutoData();//给模型添加上编号，时间，状态，用户等数据
+
+        //开启事务
+        $transaction = Yii::$app->db->beginTransaction();
+        if ($model->load(Yii::$app->request->post())&& $model->save())//保存界面
+        {
+            //存审批人到数据库和上传文件
+            if($this->saveAttachments($model)&&$model->saveApprover())
+            {
+                //找到审批人的邮箱
+                $mailAddr = EcApproval::find()->select('user_id')->where(['type'=>0,'ec_id'=>$model->id])->column();
+                //提交任务//立即提交或稍后提交成功后就保存到数据库
+                if(($_POST['taskCommit']==1 && Tasks::generateTask(Tasks::TASK_TYPE_ECR,$model->id,
+                        $this::ECR_CREATE,Tasks::STATUS_COMMITED,$mailAddr,$_POST['taskRemark']))||
+                ($_POST['taskCommit']==0 && Tasks::generateTask(Tasks::TASK_TYPE_ECR,$model->id,$this::ECR_CREATE)))
+                {
+                    //提交到数据库
+                    $transaction->commit();
+                    return $this->redirect(['view', 'id' => $model->id]);
+                }
+            }
+            $transaction->rollBack();
+        }
+        //创建界面
+        return $this->render('create', [
+            'model' => $model,
+            'dataUser'=>$model->getUserArr(),//得到用户的名字和id的数组数据给审批的下拉框
+        ]);
+    }
+
+    /**
+     * Updates an existing Ecr model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+        $model->addAutoData();//给模型添加上编号，时间，状态，用户等数据
+
+        //开启事务
+        $transaction = Yii::$app->db->beginTransaction();
+
+
+        if ($model->load(Yii::$app->request->post()) && $model->save())
+        {
+            //更新附件和审批人
+            if($this->saveAttachments($model)&&$model->updateApprover())
+            {
+                $transaction->commit();
+                return $this->redirect(['view', 'id' => $model->id]);
+            }
+            $transaction->rollBack();
+        }
+        //给uploadFile插件数据
+        $ecrAttachments = EcrAttachment::findAll(['ecr_id'=>$model->id]);
+        $preview = $previewCfg = [];
+        foreach ($ecrAttachments as $att)
+        {
+            $preview[] = $att->path;
+            $previewCfg[] =['caption' => $att->name, 'url'=>'/ecr/delete-attachment?id='.$att->id];
+        }
+        //显示审批人
+        $model->assignApproverData();
+        return $this->render('update', [
+            'model' => $model,
+            'dataUser'=>$model->getUserArr(),
+            'preview'=>$preview,
+            'previewCfg'=>$previewCfg,
+        ]);
+    }
+
+    /**
+     * Deletes an existing Ecr model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the Ecr model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return Ecr the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = Ecr::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    /**
+     * 文件上传
+     */
+    public function actionDeleteAttachment($id)
+    {
+        $model = EcrAttachment::findOne($id);
+        if($model->delete())
+        {
+            unlink($model->path);
+        }
+        $preview = $previewCfg = [];
+        $ecrAttachments = EcrAttachment::findAll($model->ecr_id);
+        foreach ($ecrAttachments as $att)
+        {
+            $preview[] = $att->path;
+            $previewCfg[] =['caption' => $att->name, 'url'=>'/ecr/delete-attachment?id='.$att->id];
+        }
+
+        echo json_encode([
+            'initialPreview' => $preview,
+            'initialPreviewConfig' => $previewCfg,
+            'append' => false,
+        ]);
+    }
+
+    /**
+     * 保存文件
+     */
+    private function saveAttachments($model)
+    {
+        $uploadFiles = UploadedFile::getInstances($model,'uploadFile');
+        foreach ($uploadFiles as $key=>$file)
+        {
+            //生成文件名和保存的路径
+            $path = '../uploads/ecr/';
+            if (!is_dir($path))
+                mkdir($path);
+            //保存时的随机名
+            $nameRandom = CommonFunc::genRandomString(9).'.'.$file->extension;
+            while(file_exists('../uploads/ecr/'.$nameRandom))//看文件是否存在
+                $nameRandom = CommonFunc::genRandomString(9).'.'.$file->extension;
+            $path = $path . $nameRandom;
+            //上传文件
+            if(!$file->saveAs($path))
+                return false;
+            //保存附件数据库
+            $mdlAttachment = new EcrAttachment();
+            $mdlAttachment->ecr_id = $model->id;
+            $mdlAttachment->name = $file->name;
+            $mdlAttachment->path = $path;
+            $mdlAttachment->updated_at = time();
+            if(!$mdlAttachment->save())
+            {
+                $mdlAttachment->getErrors();die;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 下载附件
+     */
+    public function actionDownload($pathFile,$filename)
+    {
+        if (file_exists($pathFile))
+        {
+            return Yii::$app->response->sendFile($pathFile, $filename);
+        }
+    }
+
+
+}

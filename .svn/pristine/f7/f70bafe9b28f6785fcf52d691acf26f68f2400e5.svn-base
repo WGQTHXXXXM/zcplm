@@ -1,0 +1,242 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use common\models\User;
+
+/**
+ * This is the model class for table "ecr".
+ *
+ * @property integer $id
+ * @property string $serial_number
+ * @property string $reason
+ * @property string $detail
+ * @property string $module
+ * @property integer $created_at
+ * @property integer $updated_at
+ * @property integer $status
+ */
+class EcrAndEcn extends \yii\db\ActiveRecord
+{
+    //审批等级，关联查询时当字段用
+    public $lvlApproval1 = 1;
+    public $lvlApproval2 = 2;
+    public $lvlApproval3 = 3;
+    public $lvlApproval4 = 4;
+    public $lvlApproval5 = 5;
+    public $lvlApproval6 = 6;
+
+    //ECR各级的审批人 硬件      /DCC    /采购        /PM     /QA
+    //ECN各级的审批人 硬件      /DCC    /采购        /PM     /QA     /NPI
+    public $approver1,$approver2,$approver3,$approver4,$approver5,$approver6;
+
+
+    public function attributeLabels()
+    {
+        return [
+            'approver1'=>Yii::t('material', '硬件'),
+            'approver2'=>Yii::t('material', 'DCC'),
+            'approver3'=>Yii::t('material', '采购'),
+            'approver4'=>Yii::t('material', 'PM'),
+            'approver5'=>Yii::t('material', 'QA'),
+            'approver6'=>Yii::t('material', 'NPI'),
+        ];
+    }
+
+
+    /**
+     * @return array
+     * 给下拉框里添加的数据
+     */
+    public function getUserArr()
+    {
+        return $dataUser = User::find()->select('username,id')->indexBy('id')->column();
+    }
+
+    /**
+     * 给模型添加上编号，时间，状态，用户等数据
+     */
+    public function addAutoData($EcrId=0)
+    {
+        if($this->isNewRecord)
+        {
+            //给时间，用户赋值
+            $this->created_at = $this->updated_at = time();
+            /////给编号赋值//////
+            //分辨是ECR还是ECN
+            if(strpos(strtolower(self::className()),'ecr')!==false)//ECR
+                $strTemp = 'ECR-A-'.date('ymd',time()).'-';
+            else//ECN
+            {
+                $strTemp = 'ECN-A-'.date('ymd',time()).'-';
+                $this->ecr_id = $EcrId;
+            }
+            $model = self::find()->where(['like','serial_number',$strTemp.'%',false])->select('serial_number')->column();
+            $this->serial_number = $strTemp.'001';//如果为空，默认为1号
+            if(!empty($model))//如果不为空要找到最大值加1再赋值
+            {
+                rsort($model);//找到今天编号 的最大的值
+                //先截取后三位加1，再补0，再拼接前面的编号
+                $this->serial_number = $strTemp.str_pad((substr($model[0],-3,3)+1),3,"0",STR_PAD_LEFT);
+            }
+        }
+        else
+            $this->updated_at = time();
+    }
+
+    /**
+     * 根据$_POST数据创建审批人的批量导入数据
+     *
+     */
+    public function saveApprover()
+    {
+        $dataPost = Yii::$app->request->post();
+        $dataApproval = [];//审批人表的数据
+        $numPart = 5;//默认审批部门个数
+        $ec = 'Ecr';//默认为ERR
+        if(strpos(strtolower(self::className()),'ecr')===false)//ECN
+        {
+            $numPart = 6;//默认审批部门个数
+            $ec = 'Ecn';//默认为ERR
+        }
+        //从post里得到数据变成可批量导入的数据
+        for($i=1;$i<=$numPart;$i++)
+        {
+            foreach ($dataPost[$ec]['approver'.$i] as $uid)//各级审批：硬件
+                $dataApproval[] = [$this->type,$this->id,$i,$uid];
+        }
+        return Yii::$app->db->createCommand()->batchInsert('ec_approval', ['type','ec_id','level','user_id'],$dataApproval)->execute();
+
+    }
+
+    /**
+     * 更新时更新审批人
+     */
+    public function updateApprover()
+    {
+        $dataPost = Yii::$app->request->post();
+        $dataApproval = [];//审批人表的数据
+        $numPart = 5;//默认审批部门个数
+        $ec = 'Ecr';//默认为ERR
+        $typeECR = Tasks::TASK_TYPE_ECR;
+        if(strpos(strtolower(self::className()),'ecr')===false)//ECN
+        {
+            $numPart = 6;//默认审批部门个数
+            $ec = 'Ecn';//默认为ERR
+            $typeECR = Tasks::TASK_TYPE_ECN;
+        }
+        //更新审批的数据
+        for($i=1;$i<=$numPart;$i++)
+        {   //找到数据库里的审批人，然后跟更新的对比,然后进行删除还是增加还是更新
+            $bdApprover = EcApproval::find()->select('user_id,id')->where(['type'=>$typeECR,'ec_id'=>$this->id,'level'=>$i])
+                ->indexBy('id')->column();
+            $postApprover = $dataPost[$ec]['approver'.$i];
+            $arrTemp1 = array_diff($bdApprover,$postApprover);//数据库里有的，表单没有的
+            $arrTemp2 = array_diff($postApprover,$bdApprover);//表单有的，数据库里没有的
+            if(count($arrTemp1) >= count($arrTemp2))//数据库里多于或等于表单，把更新的更新了，其它要删除
+            {
+                foreach ($arrTemp1 as $key=>$value)
+                {
+                    if(current($arrTemp2)==false)//说明是空的，把剩下的删除
+                    {
+                        $mdlTemp = EcApproval::findOne($key);
+                        if(!$mdlTemp->delete())
+                            return false;
+                        next($arrTemp2);
+                        continue;
+                    }
+                    //不为空时就要更新
+                    $mdlTemp = EcApproval::findOne($key);
+                    $mdlTemp->user_id = current($arrTemp2);
+                    if(!$mdlTemp->save())
+                        return false;
+                    next($arrTemp2);
+                }
+            }
+            else//表单数据多于数据库，把更新的更新了，其它要增加
+            {
+                foreach ($arrTemp2 as $value)
+                {
+                    if(current($arrTemp1)==false)//说明是空的，把剩下的增加
+                    {
+                        $mdlTemp = new EcApproval();
+                        $mdlTemp->type = $typeECR;
+                        $mdlTemp->ec_id = $this->id;
+                        $mdlTemp->level = $i;
+                        $mdlTemp->user_id = $value;
+                        if(!$mdlTemp->save())
+                            return false;
+                        continue;
+                    }
+                    //不为空时就要更新
+                    $mdlTemp = EcApproval::findOne(key($arrTemp1));
+                    $mdlTemp->user_id = $value;
+                    if(!$mdlTemp->save())
+                        return false;
+                    next($arrTemp1);
+                }
+            }
+        }
+        return true;
+    }
+
+
+    /**
+     * 更新页面时的审批人数据
+     */
+    public function assignApproverData()
+    {
+        foreach ($this->ecApprover1 as $uid)
+            $this->approver1[] = $uid->user_id;
+        foreach ($this->ecApprover2 as $uid)
+            $this->approver2[] = $uid->user_id;
+        foreach ($this->ecApprover3 as $uid)
+            $this->approver3[] = $uid->user_id;
+        foreach ($this->ecApprover4 as $uid)
+            $this->approver4[] = $uid->user_id;
+        foreach ($this->ecApprover5 as $uid)
+            $this->approver5[] = $uid->user_id;
+        if(strpos(strtolower(self::className()),'ecr')===false)//ECN
+        {
+            foreach ($this->ecApprover6 as $uid)
+                $this->approver6[] = $uid->user_id;
+        }
+    }
+
+    //关联表
+    public function getEcApprover1()
+    {
+        return $this->hasMany('frontend\models\EcApproval',['ec_id'=>'id','type'=>'type','level'=>'lvlApproval1']);
+    }
+    public function getEcApprover2()
+    {
+        return $this->hasMany('frontend\models\EcApproval',['ec_id'=>'id','type'=>'type','level'=>'lvlApproval2']);
+    }
+    public function getEcApprover3()
+    {
+        return $this->hasMany('frontend\models\EcApproval',['ec_id'=>'id','type'=>'type','level'=>'lvlApproval3']);
+    }
+    public function getEcApprover4()
+    {
+        return $this->hasMany('frontend\models\EcApproval',['ec_id'=>'id','type'=>'type','level'=>'lvlApproval4']);
+    }
+    public function getEcApprover5()
+    {
+        return $this->hasMany('frontend\models\EcApproval',['ec_id'=>'id','type'=>'type','level'=>'lvlApproval5']);
+    }
+    public function getEcApprover6()
+    {
+        return $this->hasMany('frontend\models\EcApproval',['ec_id'=>'id','type'=>'type','level'=>'lvlApproval6']);
+    }
+    //关联任务表
+    public function getTasks()
+    {
+        return $this->hasOne(Tasks::className(),['type_id'=>'id','type'=>'type']);
+    }
+
+
+
+
+
+}

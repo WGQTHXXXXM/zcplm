@@ -1,0 +1,54 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "ec_approval".
+ *
+ * @property integer $id
+ * @property integer $type
+ * @property integer $ec_id
+ * @property integer $level
+ * @property integer $user_id
+ */
+class EcApproval extends \yii\db\ActiveRecord
+{
+    //审核等级
+    const APPROVAL_LEVEL = ['硬件'=>1,'DCC'=>2,'PM'=>3,'QA'=>4];
+
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'ec_approval';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['type', 'ec_id', 'level', 'user_id'], 'required'],
+            [['type', 'ec_id', 'level', 'user_id'], 'integer'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'type' => Yii::t('material', '是ECR还是ECN'),
+            'ec_id' => Yii::t('material', 'ecr和ecn的id'),
+            'level' => Yii::t('material', '审批级'),
+            'user_id' => Yii::t('material', '审批人'),
+        ];
+    }
+}

@@ -1,0 +1,490 @@
+<?php
+
+namespace frontend\controllers;
+
+use Yii;
+use frontend\models\FileAttachments;
+use frontend\models\Upload;
+use frontend\models\ProjectProcess;
+use frontend\models\Projects;
+use frontend\models\Approvals;
+use mdm\admin\models\User;
+use yii\web\UploadedFile;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use yii\data\ActiveDataProvider;
+use common\components\ExcelPreview;
+use yii\helpers\Url;
+use kartik\mpdf\Pdf;
+
+/**
+ * FileAttachmentsController implements the CRUD actions for FileAttachments model.
+ */
+class FileAttachmentsController extends Controller
+{
+    //文件格式
+    const FILE_FORMAT_PDF = 0;
+    const FILE_FORMAT_PIC = 1;
+    const FILE_FORMAT_XLS = 2;
+    const FILE_FORMAT_DOC = 3;
+    const FILE_FORMAT_PPT = 4;
+
+    //产品的目录
+    const PATH_PRODUCT = '/var/www/html/zcplm_dev/frontend/';
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /*
+     * 关闭网页时前端ajax调用
+     */
+    public function actionDelfile($path)
+    {
+        unlink('../web'.$path);
+    }
+
+    /*
+     * 删除文件夹
+     */
+    function delDirAndFile( $dirName )
+    {
+        if ( $handle = opendir( "$dirName" ) )
+        {
+            while ( false !== ( $item = readdir( $handle ) ) )
+            {
+                if ( $item != "." && $item != ".." )
+                {
+                    if ( is_dir( "$dirName/$item" ) )
+                        $this->delDirAndFile( "$dirName/$item" );
+                    else
+                        unlink( "$dirName/$item" );
+                }
+            }
+            closedir( $handle );
+            rmdir( $dirName );
+        }
+    }
+
+
+    /**
+     * 预览附件
+     */
+    public function actionPreview($attachmentId)
+    {
+        //得到文件的路径
+        $modle = FileAttachments::findOne($attachmentId);
+        $attachmentPath = $modle->attachment_url;//'../../uploads/projects/....'
+        $attachmentSubPath = strchr($attachmentPath,'uploads');//'uploads/projects/....'
+        //看文件格式是属于哪种
+        $format = -1;
+        $attachmentFormat = strtolower(substr(strrchr($attachmentSubPath,'.'),1));
+        if($attachmentFormat == 'pdf')
+            $format = self::FILE_FORMAT_PDF;
+        elseif(in_array($attachmentFormat,['jpg','bmp','png']))
+            $format = self::FILE_FORMAT_PIC;
+        elseif(in_array($attachmentFormat,['xlsx','xls']))
+            $format = self::FILE_FORMAT_XLS;
+        elseif(in_array($attachmentFormat,['doc','docx']))
+            $format = self::FILE_FORMAT_DOC;
+        elseif(in_array($attachmentFormat,['ppt']))
+            $format = self::FILE_FORMAT_PPT;
+
+        //查看文件是否存在
+        if(!file_exists('../'.$attachmentSubPath)) {
+            Yii::$app->getSession()->setFlash('info', Yii::t('common', 'The files you browse do not exist'));
+            return $this->renderContent('');
+        }
+        switch ($format)
+        {
+            case self::FILE_FORMAT_PDF://pdf文件格式输出
+                //产生一个随机的名字
+                $nameRandom = $this->genRandomString(9).'.'.$attachmentFormat;
+                while(file_exists('../web/cache/'.$nameRandom))//看文件是否存在
+                    $nameRandom = $this->genRandomString(9).'.'.$attachmentFormat;
+                //把目标文件以随机的名字放到可访问的目录下，然后输出
+                if(copy('../'.$attachmentSubPath,'../web/cache/'.$nameRandom))
+                    return $this->renderPartial('preview-pdf',['pathAttach'=>'../cache/'.$nameRandom]);
+                else
+                {
+                    Yii::$app->getSession()->setFlash('info', Yii::t('common', 'If you fail, please try again'));
+                    return $this->renderContent('');
+                }
+                break;
+            case self::FILE_FORMAT_PIC://图片格式输出
+                //产生一个随机的名字
+                $nameRandom = $this->genRandomString(9).'.'.$attachmentFormat;
+                while(file_exists('../web/cache/'.$nameRandom))//看文件是否存在
+                    $nameRandom = $this->genRandomString(9).'.'.$attachmentFormat;
+                //把目标文件以随机的名字放到可访问的目录下，然后输出
+                if(copy('../'.$attachmentSubPath,'../web/cache/'.$nameRandom))
+                    return $this->renderPartial('preview-pic',['attachmentSubPath'=>'/cache/'.$nameRandom]);
+                else
+                {
+                    Yii::$app->getSession()->setFlash('info', Yii::t('common', 'If you fail, please try again'));
+                    return $this->renderContent('');
+                }
+                break;
+            case self::FILE_FORMAT_XLS://office格式输出
+                ExcelPreview::PreviewExcel($attachmentSubPath,$attachmentFormat);
+                break;
+            case self::FILE_FORMAT_DOC:
+                $tarCache = $attachmentId.'/index.html';//目标文件位置
+                if(!file_exists('../web/cache/'.$tarCache))
+                {
+                    //这样才会有权限操作写入
+                    exec('mkdir '.self::PATH_PRODUCT.'web/cache/'.$attachmentId);
+                    exec('touch '.self::PATH_PRODUCT.'web/cache/'.$tarCache);
+
+                    $cmdConverter = '/usr/local/jdk1.8.0_121/bin/java -jar /opt/jodconverter/lib/jodconverter-cli-2.2.2.jar '.
+                        self::PATH_PRODUCT.$attachmentSubPath.' '.self::PATH_PRODUCT.'web/cache/'.$tarCache;//linux文件转换的命令
+
+                    $set_charset = 'export LANG=en_US.UTF-8;';//防止中文乱码
+                    exec($set_charset.$cmdConverter,$output);//执行转换
+
+                    //更改一些html文件内容使显示更合理：如图片路径
+                    $strContent = file_get_contents('../web/cache/'.$tarCache);
+                    $strImg = '<IMG SRC="'.Url::home(true).'cache/'.$attachmentId.'/';
+                    $strContent = str_replace(['<IMG SRC="'],[$strImg],$strContent);
+                    file_put_contents('../web/cache/'.$tarCache,$strContent);
+                }
+                return $this->renderFile('cache/'.$tarCache);
+                break;
+            case self::FILE_FORMAT_PPT:
+                $tarCache = $attachmentId.'/index.html';//目标文件位置
+                if(!file_exists('../web/cache/'.$tarCache))
+                {
+                    $cmdConverter = '/usr/local/jdk1.8.0_121/bin/java -jar /opt/jodconverter/lib/jodconverter-cli-2.2.2.jar '.
+                        self::PATH_PRODUCT.$attachmentSubPath.' '.self::PATH_PRODUCT.'web/cache/'.$tarCache;//linux的命令
+
+                    $set_charset = 'export LANG=en_US.UTF-8;';//防止中文乱码
+                    exec($set_charset.$cmdConverter,$output);
+                }
+                $dir="../web/cache/".$attachmentId;
+                $countJPG = 0;
+                if (is_dir($dir)) {
+                    if ($dh = opendir($dir))
+                    {
+                        while (($file = readdir($dh)) !== false)
+                        {
+                            if(strtolower(substr(strrchr($file,'.'),1)) == 'jpg')
+                                $countJPG++;
+                        }
+                        closedir($dh);
+                    }
+                }
+                return $this->renderPartial('preview-ppt',['count'=>$countJPG,'title'=>substr(strrchr($attachmentSubPath,'/'),1)]);
+                break;
+            default:
+            {
+                Yii::$app->getSession()->setFlash('info', Yii::t('common', 'This format file cannot be viewed'));
+                return $this->renderContent('');
+            }
+        }
+    }
+
+    /**
+     * 生成随机字符串
+     * @param int $len
+     * @return string
+     */
+    private function genRandomString($len) {
+        $chars = array(
+            "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k",
+            "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v",
+            "w", "x", "y", "z", "A", "B", "C", "D", "E", "F", "G",
+            "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R",
+            "S", "T", "U", "V", "W", "X", "Y", "Z", "0", "1", "2",
+            "3", "4", "5", "6", "7", "8", "9"
+        );
+        $charsLen = count ( $chars ) - 1;
+        shuffle ( $chars ); // 将数组打乱
+        $output = "";
+        for($i = 0; $i < $len; $i ++) {
+            $output .= $chars [mt_rand ( 0, $charsLen )];
+        }
+        return $output;
+    }
+
+    /**
+     * Displays a single FileAttachments model.
+     * @param integer $project_id
+     * @param integer $file_id
+     * @return mixed
+     */
+    public function actionView($project_id, $file_id)
+    {
+        $query = Approvals::find();
+        $query->joinWith('fileAttachment.submitter')->where(['file_id' => $file_id]);
+        $query->joinWith('approver');
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+        ]);
+
+        $approvers = User::find()->select(['id', 'username'])->where(['status' => User::STATUS_ACTIVE])->asArray()->all();
+        //   $project_process = ProjectProcess::findOne($id);
+        //   $query = FileAttachments::find()->where(['file_id' => $id]);
+        //   $dataProvider = new ActiveDataProvider([
+        //       'query' => $query,
+        //   ]);
+
+
+        $approvals = new Approvals();
+        $model = new Upload();
+
+        // @param $p1 Array 需要预览的附件，是附件的一个集合
+        // @param $p2 Array 对应附件的操作属性，我们这里包括附件删除的地址和附件的id
+        $p1 = $p2 = [];
+
+        return $this->render('view', [
+            'approvers' => $approvers,
+            'approvals' => $approvals,
+            //  'searchModel' => $searchModel,
+            'dataProvider' => $dataProvider,
+            'model' => $model,
+            // other params
+            'p1' => $p1,
+            'p2' => $p2,
+            'project_id' => $project_id,
+            'file_id' => $file_id,
+        ]);
+    }
+
+    public function actionDownload($file_attachment_id, $pathFile, $filename)
+    {
+        $pathFile = substr($pathFile, strpos($pathFile, '/')+1);
+        if (file_exists($pathFile)) {
+            $model = Approvals::findOne(['file_attachment_id' => $file_attachment_id, 'approver_id' => Yii::$app->user->id]);
+            if ($model !== null && $model->status === Approvals::STATUS_UNAPPROVED) {
+                $model->status = Approvals::STATUS_APPROVING;
+                $model->save();
+            }
+            $flag=$_SERVER['HTTP_USER_AGENT'];
+            if(strpos($flag,'Trident')||strpos($flag,'Edge'))
+                $filename = urlencode($filename);
+            return Yii::$app->response->sendFile($pathFile, $filename);
+        } else {
+            throw new NotFoundHttpException(Yii::t('common', "Can't find {filename} file.", ['filename' => $filename]));
+        }
+    }
+
+    public function actionUpload($project_id, $file_id)
+    {
+        $model = new Upload();
+        $model->upload_file = UploadedFile::getInstance($model, 'upload_file');
+
+        if (($project_process = ProjectProcess::findOne($file_id)) !== null) {
+            if ($model->upload_file->baseName !== $project_process->name) {
+                Yii::$app->getSession()->setFlash('error',
+                    Yii::t('common', 'Sorry, selected filename "{filename1}" is different from project requirement filename "{filename2}".',
+                        ['filename1' => $model->upload_file->baseName, 'filename2' => $project_process->name]));
+                return $this->redirect(['/projects/project-manage-view', 'project_id' => $project_id, 'file_id' => $file_id]);
+            }
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+
+        $count = FileAttachments::find()->where(['file_id' => $file_id])->count();
+        $model_attachments = new FileAttachments();
+        $model_attachments->version = $count + 1;
+
+        $dir = '../uploads/projects/'. $file_id .'/'; //路径包括文件ID，不同附件放在不同文件ID路径下
+        if (!is_dir($dir))
+            mkdir($dir);
+        $fileName = $model->upload_file->baseName . '_' . $model_attachments->version . '.' . $model->upload_file->extension;
+        $dir = $dir . $fileName;
+        if(!$model->upload_file->saveAs($dir)){
+            echo '上传失败';return;
+            return $this->redirect(['/projects/project-manage-view', 'project_id' => $project_id, 'file_id' => $file_id]);
+        }
+        // 调用附件接口上传后返回的附件地址，注意是可访问到的附件地址
+        $fileUrl = '../' . $dir;
+        // 保存附件信息（同文件id下，保存上传记录）
+        $model_attachments->file_id = $file_id;
+        $model_attachments->submitter_id = Yii::$app->user->identity['id'];
+        $model_attachments->attachment_url = $fileUrl;
+
+        $transaction = FileAttachments::getDb()->beginTransaction();
+        try {
+            $model_attachments->save(false);
+
+            $approvals = new Approvals();
+            $approvals->load(Yii::$app->request->post());
+
+            foreach ($approvals->approver_id as $approver_id) {
+                $model_approvals = new Approvals();
+                $model_approvals->file_attachment_id = $model_attachments->file_attachment_id;
+                $model_approvals->approver_id = $approver_id;
+                $model_approvals->insert(false);
+            }
+            // sendEmail to approvers
+            $this->sendEmail($approvals->approver_id, Projects::findOne($project_id)->name, $fileName, 'projectFileUpload-html', $project_id, $file_id);
+
+            $transaction->commit();
+
+        } catch(\Exception $e) {
+            $transaction->rollBack();
+            throw $e;
+        }
+        return $this->redirect(['/projects/project-manage-view', 'project_id' => $project_id, 'file_id' => $file_id]);
+    }
+
+    public function actionEditApproval()
+    {
+        // Check if there is an Editable ajax request
+        if (isset($_POST['hasEditable'])) {
+            // use Yii's response format to encode output as JSON
+            Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+
+            // instantiate Approvals model for saving
+            $ids = Yii::$app->request->post('editableKey');
+            $ids = json_decode($ids, true);
+            $model = Approvals::findOne($ids);
+
+            // fetch the first entry in posted data (there should only be one entry
+            // anyway in this array for an editable submission)
+            // - $posted is the posted data for Book without any indexes
+            // - $post is the converted array for single model validation
+            $posted = current($_POST['Approvals']);
+            $post = ['Approvals' => $posted];
+
+            // read your posted model attributes
+            if ($model->load($post)) {
+
+                $url=Yii::$app->request->referrer; //获得上一页(view)的url
+                //  $url=Yii::$app->request->getReferrer(); //获得上一页的url
+                $ids = substr($url, strrpos($url, '?')+1);
+                $ids = str_replace('&', ',"', $ids);
+                $ids = str_replace('=', '":', $ids);
+                $ids = '{"' . $ids . '}';
+                $ids = json_decode($ids, true);
+                $project_id = $ids['project_id'];
+                $file_id = $ids['file_id'];
+                $fileAttachments = FileAttachments::findOne(['file_attachment_id' => $model->file_attachment_id, 'file_id' => $file_id]);
+                $filename = substr($fileAttachments->attachment_url, strrpos($fileAttachments->attachment_url, '/')+1);
+                // sendEmail to approvers
+                $this->sendEmail([$fileAttachments->submitter_id], Projects::findOne($project_id)->name, $filename, 'projectFileApproval-html', $project_id, $file_id, $model);
+
+                $model->save();
+                // return JSON encoded output in the below format
+                return ['output'=>'', 'message'=>''];
+
+                // alternatively you can return a validation error
+                // return ['output'=>'', 'message'=>'Validation error'];
+            }
+            // else if nothing to do always return an empty JSON encoded output
+            else {
+                return ['output'=>'', 'message'=>'load model error.'];
+            }
+        }
+    }
+
+    /**
+     * Deletes an existing FileAttachments model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $file_attachment_id
+     * @return mixed
+     */
+    public function actionDelete($file_attachment_id)
+    {
+        $url=Yii::$app->request->referrer; //获得上一页(view)的url
+        //  $url=Yii::$app->request->getReferrer(); //获得上一页的url
+        $ids = substr($url, strrpos($url, '?')+1);
+        $ids = str_replace('&', ',"', $ids);
+        $ids = str_replace('=', '":', $ids);
+        $ids = '{"' . $ids . '}';
+        $ids = json_decode($ids, true);
+        $project_id = $ids['project_id'];
+        $file_id = $ids['file_id'];
+        $model = FileAttachments::findOne(['file_attachment_id' => $file_attachment_id, 'file_id' => $file_id]);
+        $filename = substr($model->attachment_url, strrpos($model->attachment_url, '/')+1);
+        $approver_ids = Approvals::find()->select(['approver_id'])->where(['file_attachment_id' => $file_attachment_id])->indexBy('approver_id')->asArray()->all();
+
+        // sendEmail to approvers
+        //$this->sendEmail(array_keys($approver_ids), Projects::findOne($project_id)->name, $filename, 'projectFileDelete-html', $project_id, $file_id);
+        $model = $this->findModel($file_attachment_id);
+        $model->delete();
+        //删除预览缓存文件
+        $cacheFilePath = '../web/cache/'.$file_attachment_id;
+        if (file_exists ($cacheFilePath) && is_dir($cacheFilePath))
+            $this->delDirAndFile($cacheFilePath);
+
+
+        //删除上传文件
+        $model->attachment_url = substr($model->attachment_url, strpos($model->attachment_url, '/')+1); //取第一个../后面的部分
+        // Delete the file if it still exists:
+        if (file_exists ($model->attachment_url) && is_file($model->attachment_url)) {
+            unlink ($model->attachment_url);
+        }
+
+
+        //  return $this->goBack(Yii::$app->request->getReferrer()); //redirect(['view', 'project_id' => $_POST['project_id'], 'file_id' => $model->file_id]);
+        return Yii::$app->getResponse()->redirect($url);
+    }
+
+    /**
+     * Finds the FileAttachments model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return FileAttachments the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = FileAttachments::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    public function sendEmail($to_ids, $project, $filename, $body, $project_id = null, $file_id = null, $approval = null)
+    {
+        $users = array();
+        foreach ($to_ids as $id) {
+            $model = User::findOne($id);
+            array_push($users, $model->email);
+        }
+
+        // 检索单一路径
+        $sql = "SELECT parent.name FROM project_process AS node,project_process AS parent WHERE node.lft BETWEEN parent.lft AND parent.rgt AND parent.root = '$project_id' AND node.id = '$file_id'";
+        $project_process = ProjectProcess::findBySql($sql)->asArray()->all();
+        $milestone = next($project_process)['name'];
+        $task = next($project_process)['name'];
+
+        /*  $messages = [];
+          foreach ($users as $user) {
+              $messages[] = Yii::$app->mailer->compose()
+                  ->setFrom([Yii::$app->params['supportEmail'] => Yii::$app->name . ' robot'])
+                  ->setTo($user)
+                  ->setSubject('测试主题')
+                  ->setHtmlBody('测试内容---123');
+          }
+          Yii::$app->mailer->sendMultiple($messages);*/
+
+        return Yii::$app->mailer->compose(['html' => $body], [
+            'project' => $project,
+            'milestone' => $milestone,
+            'task' => $task,
+            'filename' => $filename,
+            'project_id' => $project_id,
+            'file_id' => $file_id,
+            'approval' => $approval])
+            ->setFrom([Yii::$app->params['supportEmail'] => Yii::$app->name . ' robot'])
+            ->setTo($users)
+            ->setSubject('通知——来自' . Yii::$app->name)
+            //  ->setHtmlBody('测试内容---04011653')
+            ->send();
+    }
+}

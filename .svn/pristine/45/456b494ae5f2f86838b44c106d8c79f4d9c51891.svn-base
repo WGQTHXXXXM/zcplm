@@ -1,0 +1,71 @@
+<?php
+
+namespace common\components;
+
+use Yii;
+
+class CommonFunc
+{
+    /**
+     *  @DESC 数据导
+     *  @notice 解决了上面导出列数过多的问题
+     *  @example
+     *  $data = [1, "小明", "25"];
+     *  $header = ["id", "姓名", "年龄"];
+     *  Myhelpers::exportData($data, $header);
+     *  @return void, Browser direct output
+     */
+    public static function exportData($data, $header, $title = "simple", $filename = "data")
+    {
+        //require relation class files
+        require(Yii::getAlias("@common")."/components/phpexcel/PHPExcel.php");
+        require(Yii::getAlias("@common")."/components/phpexcel/PHPExcel/Writer/Excel2007.php");
+        if (!is_array ($data) || !is_array ($header)) return false;
+        $objPHPExcel = new \PHPExcel();
+        // Set properties
+        $objPHPExcel->getProperties()->setCreator("Maarten Balliauw");
+        $objPHPExcel->getProperties()->setLastModifiedBy("Maarten Balliauw");
+        $objPHPExcel->getProperties()->setTitle("Office 2007 XLSX Test Document");
+        $objPHPExcel->getProperties()->setSubject("Office 2007 XLSX Test Document");
+        $objPHPExcel->getProperties()->setDescription("Test document for Office 2007 XLSX, generated using PHP classes.");
+        // Add some data
+        $objPHPExcel->setActiveSheetIndex(0);
+        //添加头部
+        $hk = 0;
+        foreach ($header as $key => $row)
+        {
+            if ($row['header']) { //如$v为空，舍弃  -- syb add --
+                $colum = \PHPExcel_Cell::stringFromColumnIndex($hk);
+                $objPHPExcel->setActiveSheetIndex(0) ->setCellValue($colum."1", $row['header']);
+
+                $objPHPExcel->getActiveSheet()->getColumnDimension($colum)->setWidth($row['width']);
+                $objPHPExcel->getActiveSheet()->getStyle($colum."1")->getFill()
+                    ->setFillType(\PHPExcel_Style_Fill::FILL_SOLID)->getStartColor()->setARGB('FF66CCCC');
+
+                $hk += 1;
+            }
+        }
+
+        $column = 2;
+        $objActSheet = $objPHPExcel->getActiveSheet();
+        foreach($data as $key => $rows)  //行写入
+        {
+            $span = 0;
+            foreach($rows as $keyName => $value) // 列写入
+            {
+                $j = \PHPExcel_Cell::stringFromColumnIndex($span);
+                $objActSheet->setCellValue($j.$column, $value);
+                $span++;
+            }
+            $column++;
+        }
+        // Rename sheet
+        $objPHPExcel->getActiveSheet()->setTitle($title);
+        // Save Excel 2007 file
+        $objWriter = new \PHPExcel_Writer_Excel2007($objPHPExcel);
+        header("Pragma:public");
+        header("Content-Type:application/x-msexcel;name=\"{$filename}.xlsx\"");
+        header("Content-Disposition:inline;filename=\"{$filename}.xlsx\"");
+        $objWriter->save("php://output");
+    }
+}

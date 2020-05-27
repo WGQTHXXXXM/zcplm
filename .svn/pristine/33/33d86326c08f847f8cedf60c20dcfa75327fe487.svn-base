@@ -1,0 +1,97 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use backend\models\User;
+
+/**
+ * This is the model class for table "tasks".
+ *
+ * @property integer $id
+ * @property string $name
+ * @property integer $status
+ * @property string $remark
+ * @property integer $type
+ * @property integer $type_id
+ * @property integer $date
+ * @property integer $user_id
+ */
+class Tasks extends \yii\db\ActiveRecord
+{
+    /*提交的状态*/
+    const STATUS_COMMIT = ['0'=>'待提交','1'=>'已提交','2'=>'被退回','3'=>'已通过'];
+    const STATUS_UNCOMMIT = 0;
+    const STATUS_COMMITED = 1;
+    const STATUS_REJECTED = 2;
+    const STATUS_APPROVED = 3;
+
+    /*********任务类型********/
+    const TASK_TYPE_MATERIAL = 1;
+
+
+
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'tasks';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['status', 'type', 'type_id', 'date', 'user_id'], 'required'],
+            [['status', 'type', 'type_id', 'date', 'user_id'], 'integer'],
+            [['name'], 'string', 'max' => 50],
+            [['remark'], 'string', 'max' => 255],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'name' => Yii::t('material', '任务名称'),
+            'status' => Yii::t('material', '任务状态'),
+            'remark' => Yii::t('material', '备注'),
+            'type' => Yii::t('material', '哪种任务'),
+            'type_id' => Yii::t('material', '哪种类型的ID'),
+            'date' => Yii::t('material', '更新时间'),
+            'user_id' => Yii::t('material', '创建者ID'),
+        ];
+    }
+
+
+    /**
+     * 关联物料表
+     */
+    public function getModifyMaterial()
+    {
+        return $this->hasOne(ModifyMaterial::className(),['id'=>'type_id']);
+    }
+
+    /**
+     * 关联审批表
+     */
+    public function getUserTask()
+    {
+        return $this->hasOne(UserTask::className(),['task_id'=>'id']);
+    }
+
+    /*
+     * 关联用户表
+     */
+    public function getUser()
+    {
+        return $this->hasOne(User::className(),['id'=>'user_id']);
+    }
+
+}

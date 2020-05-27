@@ -1,0 +1,115 @@
+<?php
+
+use yii\widgets\DetailView;
+
+
+//用part_name判断是不是电子物料
+$isElecMtr = true;
+if(!empty($model->part_name))
+    $isElecMtr = false;
+
+
+
+/* @var $this yii\web\View */
+/* @var $model frontend\models\ModifyMaterial */
+/* @var $mdlUserTask frontend\models\UserTask */
+
+$this->title = $model->zc_part_number;
+$this->params['breadcrumbs'][] = ['label' => Yii::t('common', 'Modify Materials'), 'url' => ['index']];
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="modify-material-view">
+
+    <h1>
+        <?php
+            echo $this->title;
+        ?>
+
+    </h1>
+
+
+    <?= DetailView::widget([
+        'model' => $model,
+        'options'=>['class'=>'table table-striped table-bordered detail-view table-hover'],
+        'formatter' => ['class' => 'yii\i18n\Formatter','nullDisplay' => '','datetimeFormat' => 'php:Y-m-d H:i:s',],
+        'attributes' => [
+            'mfr_part_number',
+            [
+                'attribute' => 'manufacturer2_id',
+                'value' => empty($model->manufacturer2)?"":$model->manufacturer2->mfr_part_number,
+            ],
+            [
+                'attribute' => 'manufacturer3_id',
+                'value' => empty($model->manufacturer3)?"":$model->manufacturer3->mfr_part_number,
+            ],
+            [
+                'attribute' => 'manufacturer4_id',
+                'value' => empty($model->manufacturer4)?"":$model->manufacturer4->mfr_part_number,
+            ],
+            [
+                'attribute' => 'is_first_mfr',
+                'value' => $model->is_first_mfr==1?"可以是一供":"不可以是一供",
+            ],
+            'description',
+            [
+                'attribute'=>'part_name',
+                //'visible'=>$isElecMtr?false:true,
+            ],
+            'unit',
+            'pcb_footprint',
+            'date_entered',
+            'assy_level',
+            'purchase_level',
+
+            [
+                'attribute' => 'manufacturer',
+                'value' => empty($model->manufacturer1)?"":$model->manufacturer1->name,
+            ],
+            'zc_part_number',
+            [
+                'attribute' => 'vehicle_standard',
+                'value' => key_exists($model->vehicle_standard,$model::VEHICLE_STANDARD)?$model::VEHICLE_STANDARD[$model->vehicle_standard]:"",
+            ],
+
+            //元件类型
+            [
+                'attribute' => 'part_type',
+                'value' => $model->partType->name,
+            ],
+            'value',
+            'schematic_part',
+            'price',
+            [
+                'attribute' => 'recommend_purchase',
+                'value' => empty($model->recommend_purchase)?'':$model::RECOMMEND_PURCHASE[$model->recommend_purchase],
+            ],
+            'lead_time',
+            'minimum_packing_quantity',
+            'remark',
+            [
+                'attribute'=>'approver1',
+                'value'=>empty($model->approver1)?'':$model->approver1,
+
+            ],
+            [
+                'attribute'=>'approver2',
+                'value'=>empty($model->approver2)?'':$model->approver2
+            ],
+            [
+                'attribute'=>'approver3dcc',
+                'value'=>empty($model->approver3dcc)?'':$model->approver3dcc
+            ],
+            [
+                'attribute'=>'approver3purchase',
+                'value'=>empty($model->approver3purchase)?'':$model->approver3purchase
+            ]
+
+
+
+        ],
+    ]) ?>
+    <?php
+    require('../views/layouts/view-approve.php');
+
+    ?>
+</div>

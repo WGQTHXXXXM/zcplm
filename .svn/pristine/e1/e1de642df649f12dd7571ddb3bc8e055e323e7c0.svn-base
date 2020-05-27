@@ -1,0 +1,28 @@
+<?php
+return [
+    'components' => [
+        'db' => [
+            'class' => 'yii\db\Connection',
+            'dsn' => 'mysql:host=172.16.16.15;dbname=zcplm_developing',
+            'username' => 'root',
+            'password' => 'Tiger2017',
+            'charset' => 'utf8',
+        ],
+        'mailer' => [
+            'class' => 'yii\swiftmailer\Mailer',
+            'viewPath' => '@common/mail',
+            // send all mails to a file by default. You have to set
+            // 'useFileTransport' to false and configure a transport
+            // for the mailer to send real emails.
+            'useFileTransport' => false,
+            'transport' => [
+                'class' => 'Swift_SmtpTransport',
+                'host' => 'smtp.exmail.qq.com',
+                'username' => 'PLM@singulato.com',
+                'password' => 'Tiger2014', //邮箱PLM@singulato.com的密码
+                'port' => '465',
+                'encryption' => 'SSL',
+            ],
+        ],
+    ],
+];

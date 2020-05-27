@@ -1,0 +1,136 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use yii\base\Model;
+use yii\data\ActiveDataProvider;
+use frontend\models\Boms;
+
+/**
+ * BomsSearch represents the model behind the search form about `frontend\models\Boms`.
+ */
+class BomsSearch extends Boms
+{
+ //   public $project_name;
+ //   public $module_name;
+ //   public $milestone;
+ //   public $part_no;
+    public $part_name;
+    public $description;
+    public $pcb_footprint;
+    public $supplier_name;
+ //   public $second_source_part_no;
+    public $second_source_supplier_name;
+ //   public $third_source_part_no;
+    public $third_source_supplier_name;
+
+    public $assy_level_toggle;
+    public $purchase_level_toggle;
+    public $part_no_toggle;
+    public $part_name_toggle;
+    public $description_toggle;
+    public $pcb_footprint_toggle;
+    public $qty_toggle;
+    public $ref_no_toggle;
+    public $supplier_name_toggle;
+    public $second_source_part_no_toggle;
+    public $second_source_supplier_name_toggle;
+    public $third_source_part_no_toggle;
+    public $third_source_supplier_name_toggle;
+    public $remark_toggle;
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['bom_id', 'module_id', 'assy_level'], 'integer'],
+            [['purchase_level', 'ref_no', 'remark', 'date_entered'], 'safe'],
+            [['qty'], 'number'],
+            [['project_name', 'module_name', 'milestone', 'part_no', 'part_name', 'description', 'pcb_footprint', 'supplier_name', 'second_source_part_no', 'second_source_supplier_name', 'third_source_part_no', 'third_source_supplier_name'], 'safe'],
+            [['assy_level_toggle', 'purchase_level_toggle', 'part_no_toggle', 'part_name_toggle', 'description_toggle', 'pcb_footprint_toggle', 'qty_toggle', 'ref_no_toggle', 'supplier_name_toggle', 'second_source_part_no_toggle', 'second_source_supplier_name_toggle', 'third_source_part_no_toggle', 'third_source_supplier_name_toggle', 'remark_toggle'], 'safe'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function scenarios()
+    {
+        // bypass scenarios() implementation in the parent class
+        return Model::scenarios();
+    }
+
+    /**
+     * Creates data provider instance with search query applied
+     *
+     * @param array $params
+     *
+     * @return ActiveDataProvider
+     */
+    public function search($params)
+    {
+        $query = Boms::find();
+        $query->joinWith(['module.project']);
+     //   $query->select('modules.*, boms.*, boms_materials.*, materials.*');
+        $query->innerJoinWith('bomsMaterials.material.brandList');
+        $query->joinWith('bomsMaterials2.material2.brandList2');
+        $query->joinWith('bomsMaterials3.material3.brandList3');
+
+        // add conditions that should always apply here
+
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+            'pagination' => [
+                'pageSize' => 20,
+            ],
+        ]);
+
+        $dataProvider->sort->attributes['module_name'] = [
+            'asc' => ["modules.name" => SORT_ASC],
+            'desc' => ["modules.name" => SORT_DESC],
+            'label' => 'Trades Count',
+        ];
+        $dataProvider->sort->attributes['milestone'] = [
+            'asc' => ["milestone" => SORT_ASC],
+            'desc' => ["milestone" => SORT_DESC],
+            'label' => 'Trades Total',
+        ];
+
+        $this->load($params);
+
+        if (!$this->validate()) {
+            // uncomment the following line if you do not want to return any records when validation fails
+            // $query->where('0=1');
+            return $dataProvider;
+        }
+
+        // grid filtering conditions
+        $query->andFilterWhere([
+            'bom_id' => $this->bom_id,
+            'module_id' => $this->module_id,
+            'assy_level' => $this->assy_level,
+            'qty' => $this->qty,
+            'date_entered' => $this->date_entered,
+        ]);
+
+        $query->andFilterWhere(['like', 'projects.name', $this->project_name])
+            ->andFilterWhere(['like', 'modules.name', $this->module_name])
+            ->andFilterWhere(['like', 'modules.milestone', $this->milestone])
+            ->andFilterWhere(['like', 'm1.part_no', $this->part_no])
+            ->andFilterWhere(['like', 'm1.part_name', $this->part_name])
+            ->andFilterWhere(['like', 'm1.description', $this->description])
+            ->andFilterWhere(['like', 'm1.pcb_footprint', $this->pcb_footprint])
+            ->andFilterWhere(['like', 'bl1.brand', $this->supplier_name])
+            ->andFilterWhere(['like', 'm2.part_no', $this->second_source_part_no])
+            ->andFilterWhere(['like', 'bl2.brand', $this->second_source_supplier_name])
+            ->andFilterWhere(['like', 'm3.part_no', $this->third_source_part_no])
+            ->andFilterWhere(['like', 'bl3.brand', $this->third_source_supplier_name])
+            ->andFilterWhere(['like', 'purchase_level', $this->purchase_level])
+            ->andFilterWhere(['like', 'ref_no', $this->ref_no])
+            ->andFilterWhere(['like', 'boms.remark', $this->remark]);
+
+        return $dataProvider;
+    }
+}

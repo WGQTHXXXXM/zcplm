@@ -1,0 +1,58 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "projects".
+ *
+ * @property integer $project_id
+ * @property string $name
+ * @property string $date_entered
+ *
+ * @property Modules[] $modules
+ */
+class Projects extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'projects';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['name'], 'required'],
+            [['date_entered'], 'safe'],
+            [['name'], 'string', 'max' => 40],
+            [['name'], 'unique'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'project_id' => Yii::t('common', 'Project ID'),
+            'name' => Yii::t('common', 'Project'),
+            'date_entered' => Yii::t('common', 'Date Entered'),
+        ];
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getModules()
+    {
+        return $this->hasMany(Modules::className(), ['project_id' => 'project_id']);
+    }
+}

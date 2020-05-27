@@ -1,0 +1,90 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use yii\base\Model;
+use yii\data\ActiveDataProvider;
+use frontend\models\ModifyMaterial;
+
+/**
+ * ModifyMaterialSearch represents the model behind the search form about `frontend\models\ModifyMaterial`.
+ */
+class ModifyMaterialSearch extends ModifyMaterial
+{
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['assy_level', 'manufacturer', 'vehicle_standard', 'part_type', 'recommend_purchase', 'minimum_packing_quantity',
+                'lead_time', 'manufacturer2_id', 'manufacturer3_id', 'manufacturer4_id', 'material_id','is_first_mfr'], 'integer'],
+            [['purchase_level', 'mfr_part_number', 'part_name', 'description', 'unit', 'pcb_footprint', 'zc_part_number', 'date_entered', 'value',
+                'schematic_part', 'price','remark','car_number',], 'safe'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function scenarios()
+    {
+        // bypass scenarios() implementation in the parent class
+        return Model::scenarios();
+    }
+
+    /**
+     * Creates data provider instance with search query applied
+     *
+     * @param array $params
+     *
+     * @return ActiveDataProvider
+     */
+    public function search($params)
+    {
+        $query = ModifyMaterial::find();
+
+        // add conditions that should always apply here
+
+        $dataProvider = new ActiveDataProvider([
+            'query' => $query,
+        ]);
+
+        $this->load($params);
+
+        if (!$this->validate()) {
+            // uncomment the following line if you do not want to return any records when validation fails
+            // $query->where('0=1');
+            return $dataProvider;
+        }
+
+        // grid filtering conditions
+        $query->andFilterWhere([
+            'id' => $this->id,
+            'assy_level' => $this->assy_level,
+            'manufacturer' => $this->manufacturer,
+            'date_entered' => $this->date_entered,
+            'vehicle_standard' => $this->vehicle_standard,
+            'part_type' => $this->part_type,
+            'recommend_purchase' => $this->recommend_purchase,
+            'minimum_packing_quantity' => $this->minimum_packing_quantity,
+            'lead_time' => $this->lead_time,
+            'manufacturer2_id' => $this->manufacturer2_id,
+            'manufacturer3_id' => $this->manufacturer3_id,
+            'manufacturer4_id' => $this->manufacturer4_id,
+            'material_id' => $this->material_id,
+        ]);
+
+        $query->andFilterWhere(['like', 'purchase_level', $this->purchase_level])
+            ->andFilterWhere(['like', 'mfr_part_number', $this->mfr_part_number])
+            ->andFilterWhere(['like', 'description', $this->description])
+            ->andFilterWhere(['like', 'pcb_footprint', $this->pcb_footprint])
+            ->andFilterWhere(['like', 'zc_part_number', $this->zc_part_number])
+            ->andFilterWhere(['like', 'value', $this->value])
+            ->andFilterWhere(['like', 'schematic_part', $this->schematic_part])
+            ->andFilterWhere(['like', 'price', $this->price]);
+
+        return $dataProvider;
+    }
+}

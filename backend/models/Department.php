@@ -1,0 +1,115 @@
+<?php
+
+namespace backend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "department".
+ *
+ * @property integer $id
+ * @property string $name
+ */
+class Department extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'department';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['name'], 'required'],
+            [['name'], 'string', 'max' => 50],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => 'ID',
+            'name' => '部门',
+        ];
+    }
+
+    /////////关联表////////
+    public function getEmployee()
+    {
+        return $this->hasMany(DepartmentUser::className(),['department_id'=>'id']);
+    }
+
+    /*
+     * 得到该部门的员工
+     */
+    public function getDataView()
+    {
+        $data['assigned'] = DepartmentUser::find()->innerJoin('user','user.id = department_user.user_id')
+            ->where(['department_user.department_id'=>$this->id])
+            ->select('user.username as name,user.id as id')->indexBy('id')->column();
+
+        $data['avaliable'] = User::find()->where(['not in','id',array_keys($data['assigned'])])->andWhere(['status'=>User::STATUS_ACTIVE])
+            ->select('username,id')->indexBy('id')->column();
+        return $data;
+    }
+
+
+    /**
+     * 把员工移除部门
+     */
+    public function removeEmployee($arrUser)
+    {
+        $departmentId = $this->id;
+        foreach ($arrUser as $val)
+        {
+            $modelDel = DepartmentUser::findOne(['department_id'=>$departmentId,'user_id'=>$val]);
+            if(!$modelDel->delete())
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * 删除部门
+     */
+    public function delDepartment()
+    {
+        $this->delete();
+        DepartmentUser::deleteAll(['department_id'=>$this->id]);
+    }
+
+    /**
+     * 给部门分配员工
+     */
+    public function assignEmployee($arrUser)
+    {
+        $departmentId = $this->id;
+        foreach ($arrUser as $val)
+        {
+            $modelNew = new DepartmentUser();
+            $modelNew->department_id = $departmentId;
+            $modelNew->user_id = $val;
+            if(!$modelNew->save())
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * 返回所有部门的数组
+     */
+    public static function getDepartmentAll()
+    {
+        return Department::find()->select('name,id')->indexBy('id')->column();
+    }
+
+}

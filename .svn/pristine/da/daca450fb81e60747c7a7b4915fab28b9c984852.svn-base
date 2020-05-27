@@ -1,0 +1,48 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "material_approver".
+ *
+ * @property integer $id
+ * @property integer $material_id
+ * @property integer $approver1
+ * @property integer $approver2
+ */
+class MaterialApprover extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'material_approver';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['material_id', 'approver1', 'approver2'], 'required'],
+            [['material_id', 'approver1', 'approver2'], 'integer'],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'material_id' => Yii::t('material', '对应的物料id'),
+            'approver1' => Yii::t('material', '一级审批人'),
+            'approver2' => Yii::t('material', '二级审批人'),
+        ];
+    }
+}

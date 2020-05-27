@@ -1,0 +1,73 @@
+<?php
+
+use yii\helpers\Html;
+use kartik\grid\GridView;
+
+/* @var $this yii\web\View */
+/* @var $searchModel frontend\models\UserTaskSearch */
+/* @var $dataProvider yii\data\ActiveDataProvider */
+
+$this->title = Yii::t('common', '个人审批');
+$this->params['breadcrumbs'][] = $this->title;
+
+?>
+<div class="user-task-index">
+
+    <h1><?= Html::encode($this->title) ?></h1>
+    <?= GridView::widget([
+        'dataProvider' => $dataProvider,
+        'striped' => true,
+        'export' => false,
+        'toggleData' => false,
+        'hover'=>true,
+        'bordered'=>true,
+        'panel' => ['type' => 'success', 'heading' => "个人任务清单", 'footer' => false],
+        'columns' => [
+            [
+                'attribute' => 'user_id',
+                'label'=>'审批人',
+                'value'=>"user.username"
+            ],
+            [
+                'attribute' => 'status',
+                'label'=>'审批状态',
+                'value'=>function($model){
+                    return $model::STATUS_APPROVE[$model->status];
+                }
+            ],
+            'remark',
+            [
+                'attribute' => 'updated_at',
+                'label'=>'更新时间',
+                'format' => ['date','php:Y-m-d H:i:s']
+            ],
+            [
+                'attribute' => 'created_at',
+                'label'=>'用时',
+                'value' => function($model){
+                    $used = $model->updated_at-$model->created_at;
+                    //天86400，小时3600，分60，秒
+                    $day=0;$hour=0;$min=0;$str = '';
+                    if($used>=86400){
+                        $day = intval($used/86400);
+                        $str .= $day.'天';
+                        $used = $used%86400;
+                    }
+                    if($used>=3600){
+                        $hour = intval($used/3600);
+                        $str .= $hour.'小时';
+                        $used = $used%3600;
+                    }
+                    if($used>=60){
+                        $min = intval($used/60);
+                        $str .= $min.'分';
+                        $used = $used%60;
+                    }
+                    $str .= $used.'秒';
+
+                    return $str;
+                }
+            ],
+        ],
+    ]); ?>
+</div>

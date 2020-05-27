@@ -1,0 +1,38 @@
+<?php
+
+use yii\helpers\Html;
+use yii\widgets\ActiveForm;
+
+/* @var $this yii\web\View */
+
+$this->title = Yii::t('bom', 'Search');
+$this->params['breadcrumbs'][] = $this->title;
+?>
+<div class="search-index">
+
+    <h1><?= Html::encode($this->title) ?></h1>
+
+    <div class="search-form">
+
+        <?php $form = ActiveForm::begin([
+            'action' => 'view',
+            'method' => 'post',
+        ]); ?>
+
+        <?= $form->field($model, 'search_category')->dropDownList([
+            $model::BOM => 'BOM',
+         //   $model::ECR => 'ECR',
+         //   $model::ECN => 'ECN',
+        ]) ?>
+
+        <?= $form->field($model, 'serial_number')->textInput(['maxlength' => true]) ?>
+
+        <div class="form-group">
+            <?= Html::submitButton(Yii::t('bom', 'Search'), ['class' => 'btn btn-success']) ?>
+        </div>
+
+        <?php ActiveForm::end(); ?>
+
+    </div><!-- search-form -->
+
+</div><!-- search-index -->

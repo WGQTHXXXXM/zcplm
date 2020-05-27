@@ -1,0 +1,77 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+/**
+ * This is the model class for table "class_list".
+ *
+ * @property integer $id
+ * @property string $class
+ * @property integer $type_id
+ *
+ * @property ClassBrandList[] $classBrandLists
+ * @property TypeList $type
+ * @property DetailList[] $detailLists
+ */
+class ClassList extends \yii\db\ActiveRecord
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'class_list';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['class', 'type_id'], 'required'],
+            [['type_id'], 'integer'],
+            [['class'], 'string', 'max' => 32],
+            [['class'], 'unique'],
+            [['type_id'], 'exist', 'skipOnError' => true, 'targetClass' => TypeList::className(), 'targetAttribute' => ['type_id' => 'id']],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('common', 'ID'),
+            'class' => Yii::t('common', 'Class'),
+            'type_id' => Yii::t('common', 'Type ID'),
+        ];
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getClassBrandLists()
+    {
+        return $this->hasMany(ClassBrandList::className(), ['class_id' => 'id']);
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getType()
+    {
+        return $this->hasOne(TypeList::className(), ['id' => 'type_id']);
+    }
+
+    /**
+     * @return \yii\db\ActiveQuery
+     */
+    public function getDetailLists()
+    {
+        return $this->hasMany(DetailList::className(), ['class_id' => 'id']);
+    }
+}

@@ -1,0 +1,724 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+use backend\models\User;
+use common\components\CommonFunc;
+use frontend\controllers\TasksController;
+use yii\helpers\Html;
+use yii\helpers\Url;
+
+/**
+每增加一类任务要变动的函数和变量等如下：
+    1.增加一个新任务类型：如Task::TASK_TYPE_ECR = 2;
+    2.返回任务的审批人、审批邮箱、任务名：Task::getApprovers();
+    3.每个任务的类里加任务动作名称：如ModifyMaterialController::MATERIAL_UPDATE = '更新物料';
+    4.增加一个新任务类型在个人任务列表里显示的a连接：UserTask/Task::getALinkTask();
+    5.在新任务的controller里调用Tasks::generateTask();
+    6.做任务的查看和更新
+    7.做任务的审批通过对任务的处理：在UserTaskController::actionDoApprove()下加审批通过对数据库的处理
+    8.做任务的删除处理处理Task::deleteTask()。
+ */
+
+/**
+ * This is the model class for table "tasks".
+ * @property integer $id
+ * @property string $name
+ * @property integer $status
+ * @property string $remark
+ * @property integer $type
+ * @property integer $type_id
+ * @property integer $date
+ * @property integer $user_id
+ */
+class Tasks extends \yii\db\ActiveRecord
+{
+    /*提交的状态*/
+    const STATUS_COMMIT = ['0'=>'待提交','1'=>'已提交','2'=>'被退回','3'=>'已通过','4'=>'是否继续ECN'];
+    const STATUS_UNCOMMIT = 0;
+    const STATUS_COMMITED = 1;
+    const STATUS_REJECTED = 2;
+    const STATUS_APPROVED = 3;
+    const STATUS_CREATE_ECN = 4;
+
+    /*********任务类型********/
+    const TASK_TYPE_MTR_APPROVER1 = 6;//物料一级审批任务
+    const TASK_TYPE_MTR_APPROVER2 = 7;//物料二级审批任务
+    const TASK_TYPE_MATERIAL = 1;//物料最后审批任务
+
+
+    const TASK_TYPE_BOM_UPLOAD = 4;//上传excel表格的bom
+
+    const TASK_TYPE_PROJECT_FILE_UPLOAD = 5;//项目管理的上传文件(不用了，竹波设计 )
+    const TASK_TYPE_MTR_FILE_UPLOAD = 10;//物料上传文件
+
+    const TASK_TYPE_ECR1 = 21;//ECR一审
+    const TASK_TYPE_ECR2 = 22;//ECR二审
+    const TASK_TYPE_ECR3 = 23;//ECR三审
+    const TASK_TYPE_ECR4 = 24;//ECR四审
+
+    const TASK_TYPE_ECN1 = 31;//ECN一审
+    const TASK_TYPE_ECN2 = 32;//ECN二审
+    const TASK_TYPE_ECN3 = 33;//ECN三审
+    const TASK_TYPE_ECN4 = 34;//ECN四审
+
+    const TASK_TYPE_QSM = 40;//质量体系管理文件上传
+
+    /*********任务类型对应处理的类********/
+    const DO_PASS_TASK =[
+        //物料
+        self::TASK_TYPE_MATERIAL=>'frontend\models\ModifyMaterial',
+        self::TASK_TYPE_MTR_APPROVER1=>'frontend\models\ModifyMaterial',
+        self::TASK_TYPE_MTR_APPROVER2=>'frontend\models\ModifyMaterial',
+        ///bom
+        self::TASK_TYPE_BOM_UPLOAD=>'frontend\models\BomsParent',
+        ///ECR
+        self::TASK_TYPE_ECR1=>'frontend\models\Ecr',
+        self::TASK_TYPE_ECR2=>'frontend\models\Ecr',
+        self::TASK_TYPE_ECR3=>'frontend\models\Ecr',
+        self::TASK_TYPE_ECR4=>'frontend\models\Ecr',
+        ///Ecn
+        self::TASK_TYPE_ECN1=>'frontend\models\Ecn',
+        self::TASK_TYPE_ECN2=>'frontend\models\Ecn',
+        self::TASK_TYPE_ECN3=>'frontend\models\Ecn',
+        self::TASK_TYPE_ECN4=>'frontend\models\Ecn',
+        ///项目管理物料文件上传
+        self::TASK_TYPE_MTR_FILE_UPLOAD=>'frontend\models\MaterialAttachment',
+    ];
+
+
+    ///////////////////////////////////
+    public $taskSub;//任务审批用时
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'tasks';
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function rules()
+    {
+        return [
+            [['status', 'type', 'type_id', 'date', 'user_id'], 'required'],
+            [['status', 'type', 'type_id', 'date', 'user_id'], 'integer'],
+            [['name'], 'string', 'max' => 50],
+            [['remark'], 'string', 'max' => 255],
+        ];
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function attributeLabels()
+    {
+        return [
+            'id' => Yii::t('material', 'ID'),
+            'name' => Yii::t('material', '任务名称'),
+            'status' => Yii::t('material', '任务状态'),
+            'remark' => Yii::t('material', '备注'),
+            'type' => Yii::t('material', '哪种任务'),
+            'type_id' => Yii::t('material', '哪种类型的ID'),
+            'date' => Yii::t('material', '更新时间'),
+            'user_id' => Yii::t('material', '创建者'),
+        ];
+    }
+
+    /**新建一个任务,加新建任务的审批人
+     * @param $typeDetail:对应的任务类型（如是物料还是ECR啥的）
+     * @param $idDetail：对应该任务的内容id号（如物料的id,ECR的id）
+     * @param $taskName：是新增还是更新啥东西
+     * @param $Author：新建任务时是否指定审批人，如果为-1时说明没指定
+     * @param int $status：是不是立即提交
+     * @param string $remark：备注
+     * @return bool：返回任务新建是否成功
+     */
+    public static function generateTask($typeDetail,$idDetail,$taskName,$Author=-1)
+    {
+        $status = $_POST['taskCommit'];//是否立即提交
+        $remark = $_POST['taskRemark'];//备注
+        //生成任务
+        if($Author == -1)
+            $Author = Yii::$app->user->id;//创建者
+        $task = new Tasks();
+        $task->name = $taskName;
+        $task->status=$status;
+        $task->remark = $remark;
+        //如果是立即提交
+        if($status == self::STATUS_COMMITED)//如果是立即提交的要改数据
+            $task->remark = $remark;
+        $task->type = $typeDetail;
+        $task->type_id = $idDetail;
+        $task->date = time();
+        $task->user_id = $Author;
+        //如果任务保存成功再生成用户任务表
+        if($task->save())
+        {
+            if($status == self::STATUS_COMMITED)//如果是立即提交的要加审批任务数据
+            {
+                //得到审批人
+                $arrApprovers = self::getApprovers($typeDetail,$idDetail);
+                if(!UserTask::GenerateUserTask($arrApprovers['approvers'],$task->id))
+                    return false;
+                //发邮件
+                //if($typeDetail < Tasks::TASK_TYPE_ECR1 || $typeDetail > Tasks::TASK_TYPE_ECR4)//ECR通过不发信
+                CommonFunc::sendMail(CommonFunc::APPROVE_NOTICE,$arrApprovers['mail'],$task->name,
+                    $arrApprovers['code'],'user-task/index');
+            }
+            return true;
+        }
+        else
+            return false;
+    }
+
+    /*
+     * 立即提交时更新任务表和审批表的状态
+     */
+    public function submitUpdateStatus()
+    {
+        UserTask::updateAll(['status'=>UserTask::STATUS_UNAPPROVE],['task_id'=>$this->id]);
+        $this->status = Tasks::STATUS_COMMITED;
+        $this->remark = $_POST['taskRemark'];
+        if($this->save()){
+            return true;
+        }
+
+        return false;
+    }
+
+
+    /**
+     * 根据任务类型删除任务
+     */
+    public function deleteTask()
+    {
+        $isSuc = true;
+        switch ($this->type)
+        {
+            case self::TASK_TYPE_ECR1://ECR
+            case self::TASK_TYPE_ECR2://ECR
+            case self::TASK_TYPE_ECR3://ECR
+            case self::TASK_TYPE_ECR4://ECR
+                //删除数据
+                $isSuc = Ecr::findOne($this->type_id)->delete();
+                //删除附件
+                if($isSuc)
+                {
+                    $mdlEcrAttachments = EcrAttachment::find()->select('path')->where(['ecr_id'=>$this->type_id])->all();
+                    foreach ($mdlEcrAttachments as $val)
+                    {
+                        if(!unlink($val->path))
+                            return false;
+                    }
+                    //清除附件的数据库
+                    EcrAttachment::deleteAll(['ecr_id'=>$this->type_id]);
+                    //删除ECN
+                    $mdlEcn = Ecn::findOne(['ecr_id'=>$this->type_id]);
+                    $isSuc = ExtBomsParent::rejectEcn($mdlEcn->id);//删除BOM_child,bom_parent,ecn_bomid_temp
+                    if($isSuc == true)//把Ecn和变更集合的信息删除
+                    {
+                        $mdlEcrAttachments = EcnAttachment::find()->select('path')->where(['ecn_id'=>$mdlEcn->id])->all();
+                        foreach ($mdlEcrAttachments as $val)
+                        {
+                            if(!unlink($val->path))
+                                return false;
+                        }
+                        //清除附件的数据库
+                        EcnAttachment::deleteAll(['ecn_id'=>$mdlEcn->id]);
+                    }
+                    $isSuc = Ecn::deleteAll(['id'=>$mdlEcn->id]);
+                }
+
+                break;
+            case self::TASK_TYPE_ECN1://ECN,要删除ECN的关联的一些表和BOM
+            case self::TASK_TYPE_ECN2://ECN,要删除ECN的关联的一些表和BOM
+            case self::TASK_TYPE_ECN3://ECN,要删除ECN的关联的一些表和BOM
+            case self::TASK_TYPE_ECN4://ECN,要删除ECN的关联的一些表和BOM
+//            $mdlEcn = Ecn::findOne($this->type_id);
+//            $isSuc = ExtBomsParent::rejectEcn($mdlEcn->id);//删除BOM_child,bom_parent,ecn_bomid_temp
+//            if($isSuc == true)//把Ecn和变更集合的信息删除
+//            {
+//                $arrChangeSet = EcnChangeSet::find()->where(['ecn_id'=>$mdlEcn->id])->select('id')->column();
+//                $arrPartUser = EcnPartUser::find()->where(['in','ecn_change_id',$arrChangeSet])->select('id')->column();
+//                EcnAltgroup::deleteAll(['in','part_user_id',$arrPartUser]);
+//                EcnPartUser::deleteAll(['in','ecn_change_id',$arrPartUser]);
+//                EcnChangeSet::deleteAll(['ecn_id'=>$mdlEcn->id]);
+//            }
+                $mdlEcn = Ecn::findOne($this->type_id);
+                $isSuc = ExtBomsParent::rejectEcn($mdlEcn->id);//删除BOM_child,bom_parent,ecn_bomid_temp
+                if($isSuc == true)//把Ecn和变更集合的信息删除
+                {
+                    $mdlEcrAttachments = EcnAttachment::find()->select('path')->where(['ecn_id'=>$this->type_id])->all();
+                    foreach ($mdlEcrAttachments as $val)
+                    {
+//                        if(!unlink($val->path))
+//                            return false;
+                    }
+                    //清除附件的数据库
+                    EcnAttachment::deleteAll(['ecn_id'=>$this->type_id]);
+                }
+                Ecn::deleteAll(['id'=>$this->type_id]);
+                //改变Ecr的状态为是否继续ECN
+                $mdlEcr = Ecr::findOne($mdlEcn->ecr_id);
+                $mdlTaskEcr = Tasks::find()->where(['in','type',
+                    [self::TASK_TYPE_ECR1,self::TASK_TYPE_ECR2,self::TASK_TYPE_ECR3,self::TASK_TYPE_ECR4]])->
+                    andWhere(['type_id'=>$mdlEcr->id])->one();
+                $mdlTaskEcr->status = Tasks::STATUS_CREATE_ECN;
+                if(!$mdlTaskEcr->save())
+                    return false;
+                break;
+            case self::TASK_TYPE_BOM_UPLOAD://BOM上传
+                $mdlBomParent = BomsParent::findOne($this->type_id);
+                BomsChild::deleteAll(['boms_parent_id'=>$mdlBomParent->id]);
+                if(!$mdlBomParent->delete())
+                    $isSuc = false;
+                break;
+            case self::TASK_TYPE_PROJECT_FILE_UPLOAD://工程文件上传
+                $mdlPjtProcess = ProjectAttachment::findOne($this->type_id);
+                $isSuc = unlink($mdlPjtProcess->path);
+                break;
+            case self::TASK_TYPE_MTR_FILE_UPLOAD://物料文件上传
+                $mdlTemp = MaterialAttachment::findOne($this->type_id);
+                $count = MaterialAttachment::find()->where(['path'=>$mdlTemp->path])->count();
+                if($count==1&&file_exists($mdlTemp->path))
+                    unlink($mdlTemp->path);
+                $isSuc = $mdlTemp->delete();
+                break;
+            case self::TASK_TYPE_MATERIAL://物料
+            case self::TASK_TYPE_MTR_APPROVER1:
+            case self::TASK_TYPE_MTR_APPROVER2:
+                $mdlMdfMaterial = ModifyMaterial::findOne($this->type_id);
+                MaterialApprover::deleteAll(['material_id'=>$mdlMdfMaterial->id]);
+                MaterialAttachment::deleteAll(['modify_material_id'=>$mdlMdfMaterial->id,'material_id'=>null]);
+                $isSuc = $mdlMdfMaterial->delete();
+                break;
+            case self::TASK_TYPE_QSM://质量文件上传
+                $mdlTemp = QsmAttachment::findOne($this->type_id);
+                if(file_exists($mdlTemp->path))
+                    unlink($mdlTemp->path);
+                $isSuc = $mdlTemp->delete();
+                break;
+        }
+        $this->delete();//删除任务
+        return $isSuc;
+    }
+
+    /**
+     * 把审批人表里的人与审批任务表里的人同步
+     *///原来的审批人是自选的----2018-3-6
+//    public function syncApprover()
+//    {
+//        //如果更新时换了审批人
+//        $ecApprover = EcApproval::find()->select('user_id,id')->where(['type'=>$this->type,'ec_id'=>$this->type_id])
+//            ->indexBy('id')->column();
+//        $utApprover = UserTask::find()->select('user_id,id')->where(['task_id'=>$this->id])
+//            ->indexBy('id')->column();
+//        foreach ($ecApprover as $k=>$v)
+//        {
+//            $kUt = array_search($v,$utApprover);
+//            if($kUt!==false)
+//            {
+//                unset($ecApprover[$k]);
+//                unset($utApprover[$kUt]);
+//            }
+//        }
+//        $arrTemp1 = $utApprover;//只有审批任务里有的
+//        $arrTemp2 = $ecApprover;//只有审批人里有的
+//        if(count($arrTemp1) >= count($arrTemp2))//如果审批任务里多于或等于审批人里的，把更新的更新了，其它要删除
+//        {
+//            foreach ($arrTemp1 as $key=>$value)
+//            {
+//                if(current($arrTemp2)==false)//说明是空的，把剩下的删除
+//                {
+//                    $mdlTemp = UserTask::findOne($key);
+//                    if(!$mdlTemp->delete())
+//                        return false;
+//                    next($arrTemp2);
+//                    continue;
+//                }
+//                //不为空时就要更新
+//                $mdlTemp = UserTask::findOne($key);
+//                $mdlTemp->user_id = current($arrTemp2);
+//                if(!$mdlTemp->save())
+//                    return false;
+//                next($arrTemp2);
+//            }
+//        }
+//        else//改动之后，又加了一些总体上多于原来的，把更新的更新了，其它要增加
+//        {
+//            foreach ($arrTemp2 as $value)
+//            {
+//                if(current($arrTemp1)==false)//说明是空的，把剩下的增加
+//                {
+//                    $mdlTemp = new UserTask();
+//                    $mdlTemp->task_id = $this->id;
+//                    $mdlTemp->user_id = $value;
+//                    $mdlTemp->status = UserTask::STATUS_UNAPPROVE;
+//                    $mdlTemp->created_at = time();
+//                    $mdlTemp->updated_at = time();
+//                    if(!$mdlTemp->save())
+//                        return false;
+//                    continue;
+//                }
+//                //不为空时就要更新
+//                $mdlTemp = UserTask::findOne(key($arrTemp1));
+//                $mdlTemp->user_id = $value;
+//                if(!$mdlTemp->save())
+//                    return false;
+//                next($arrTemp1);
+//            }
+//        }
+//    }
+
+
+
+
+////////////////////以下是关联表//////////////////////////////
+
+    //关联物料表
+    public function getModifyMaterial()
+    {
+        return $this->hasOne(ModifyMaterial::className(),['id'=>'type_id']);
+    }
+
+    //关联ECR表
+    public function getEcr()
+    {
+        return $this->hasOne(Ecr::className(),['id'=>'type_id']);
+    }
+
+    //关联ECN表
+    public function getEcn()
+    {
+        return $this->hasOne(Ecn::className(),['id'=>'type_id']);
+    }
+
+    //关联审批表
+    public function getUserTask()
+    {
+        return $this->hasOne(UserTask::className(),['task_id'=>'id']);
+    }
+
+
+    //关联用户表
+    public function getUser()
+    {
+        return $this->hasOne(User::className(),['id'=>'user_id']);
+    }
+
+    //关联bomsParent表
+    public function getBomsParent()
+    {
+        return $this->hasOne(ExtBomsParent::className(),['id'=>'type_id']);
+    }
+
+//    //关联project_attachment表
+//    public function getProjectAttachment()
+//    {
+//        return $this->hasOne(ProjectAttachment::className(),['file_id'=>'type_id']);
+//    }
+
+    //关联material_attachment表
+    public function getMaterialAttachment()
+    {
+        return $this->hasOne(MaterialAttachment::className(),['id'=>'type_id']);
+    }
+
+    //关联project_process表
+    public function getProjectProcess()
+    {
+        return $this->hasOne(ProjectProcess::className(),['id'=>'type_id']);
+    }
+
+    public function getQsmAttachment()
+    {
+        return $this->hasOne(QsmAttachment::className(),['id'=>'type_id']);
+    }
+
+////////////////////get属性//////////////////////////////
+    /** 获得每个任务的审批人
+     *  @param $type:任务类型
+     *  @param $typeId:任务关联表的id号
+     *  @param $isReject:是否是退回邮件(如果是退回邮件就不用给自己，要给其它人发)，然后审批人里把当前人干掉，发信时用
+     *  @return array:返回审批人数组ID,审批人邮箱，审批的任务名
+     */
+    public static function getApprovers($type,$typeId,$isReject=false,$authorId=null)
+    {
+        $data = [];
+        if($type == Tasks::TASK_TYPE_MATERIAL)
+        {
+            $data['approvers'] =array_values(MaterialApprover::find()->where(['material_id'=>$typeId])
+                ->select('approver3dcc,approver3purchase')->asArray()->one());
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = ModifyMaterial::findOne($typeId)->mfr_part_number;
+        }
+        else if($type == Tasks::TASK_TYPE_BOM_UPLOAD)
+        {
+            $data['approvers'] = Approver::find()->where(['type'=>$type])->select('user_id')->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = ExtBomsParent::findOne($typeId)->material->zc_part_number;
+        }
+        else if($type == Tasks::TASK_TYPE_PROJECT_FILE_UPLOAD)
+        {
+            $data['approvers'] = Approver::find()->where(['type'=>$type])->select('user_id')->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = ProjectProcess::findOne($typeId)->name;
+        }
+        else if($type == Tasks::TASK_TYPE_MTR_FILE_UPLOAD)
+        {
+            if(!empty($_POST['MaterialAttachment']['departLvl'])){//如果是提交只给第一级的审批人，只有提交的审批人是对的
+                $data['approvers'] = $_POST['MaterialAttachment']['departLvl'][1];
+            }else{
+                var_dump('获得审批人函数出错');die;
+            }
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = MaterialAttachment::findOne($typeId)->name;
+        }
+        else if($type == Tasks::TASK_TYPE_QSM)
+        {
+            if(!empty($_POST['QsmAttachment']['departLvl'])){//如果是提交只给第一级的审批人，只有提交的审批人是对的
+                $data['approvers'] = $_POST['QsmAttachment']['departLvl'][1];
+            }else{
+                var_dump('获得审批人函数出错');die;
+            }
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = MaterialAttachment::findOne($typeId)->name;
+        }
+        else if($type == Tasks::TASK_TYPE_MTR_APPROVER1)
+        {
+            $data['approvers'] =MaterialApprover::find()->where(['material_id'=>$typeId])->select('approver1')->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = ModifyMaterial::findOne($typeId)->mfr_part_number;
+        }
+        else if($type == Tasks::TASK_TYPE_MTR_APPROVER2)
+        {
+            $data['approvers'] =MaterialApprover::find()->where(['material_id'=>$typeId])->select('approver2')->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = ModifyMaterial::findOne($typeId)->mfr_part_number;
+        }
+        //////ECR/////////////
+        else if($type == Tasks::TASK_TYPE_ECR1)
+        {
+            $data['approvers'] =EcApproval::find()->where(['ec_id'=>$typeId,'type'=>EcApproval::TYPE_ECR])->select('approver1')->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = Ecr::findOne($typeId)->serial_number;
+        }
+        else if($type == Tasks::TASK_TYPE_ECR2)
+        {
+            $data['approvers'] =EcApproval::find()->where(['ec_id'=>$typeId,'type'=>EcApproval::TYPE_ECR])->select('approver2')->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = Ecr::findOne($typeId)->serial_number;
+        }
+        else if($type == Tasks::TASK_TYPE_ECR3)
+        {
+            $approver3 =EcApproval::find()->where(['ec_id'=>$typeId,'type'=>EcApproval::TYPE_ECR])->one();
+            $data['approvers'] =Approver::find()->where(['type'=>$approver3->approver3])->select('user_id')->column();
+
+            if(false!==$num=array_search($approver3->approver1,$data['approvers']))
+                array_splice($data['approvers'],$num,1);
+            if(false!==$num=array_search($approver3->approver2,$data['approvers']))
+                array_splice($data['approvers'],$num,1);
+            if(false!==$num=array_search($approver3->approver4dcc,$data['approvers']))
+                array_splice($data['approvers'],$num,1);
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = Ecr::findOne($typeId)->serial_number;
+        }
+        else if($type == Tasks::TASK_TYPE_ECR4)
+        {
+            $data['approvers'] =EcApproval::find()->where(['ec_id'=>$typeId,'type'=>EcApproval::TYPE_ECR])->select('approver4dcc')->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = Ecr::findOne($typeId)->serial_number;
+        }
+        //////ECN/////////////
+        else if($type == Tasks::TASK_TYPE_ECN1)
+        {
+            $data['approvers'] =EcApproval::find()->where(['ec_id'=>$typeId,'type'=>EcApproval::TYPE_ECN])->select('approver1')->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = Ecn::findOne($typeId)->serial_number;
+        }
+        else if($type == Tasks::TASK_TYPE_ECN2)
+        {
+            $data['approvers'] =EcApproval::find()->where(['ec_id'=>$typeId,'type'=>EcApproval::TYPE_ECN])->select('approver2')->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = Ecn::findOne($typeId)->serial_number;
+        }
+        else if($type == Tasks::TASK_TYPE_ECN3)
+        {
+            $approver3 =EcApproval::find()->where(['ec_id'=>$typeId,'type'=>EcApproval::TYPE_ECN])->one();
+            $data['approvers'] =Approver::find()->where(['type'=>$approver3->approver3])->select('user_id')->column();
+            if(false!==$num=array_search($approver3->approver1,$data['approvers']))
+                array_splice($data['approvers'],$num,1);
+            if(false!==$num=array_search($approver3->approver2,$data['approvers']))
+                array_splice($data['approvers'],$num,1);
+            if(false!==$num=array_search($approver3->approver4dcc,$data['approvers']))
+                array_splice($data['approvers'],$num,1);
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = Ecn::findOne($typeId)->serial_number;
+        }
+        else if($type == Tasks::TASK_TYPE_ECN4)
+        {
+            $data['approvers'] =EcApproval::find()->where(['ec_id'=>$typeId,'type'=>EcApproval::TYPE_ECN])->select('approver4dcc')->column();
+            if($isReject)//如果是退回任务，把当前审批人从审批人数据里删除，然后加上用户的邮箱。
+                array_splice($data['approvers'],array_search(Yii::$app->user->id,$data['approvers']),1);
+            $data['code'] = Ecn::findOne($typeId)->serial_number;
+        }
+        else
+        {
+            echo '去Tasks::getApprovers()设定获得新的审批人';die;
+        }
+
+        $data['mail'] = User::find()->select('email')->where(['in','id',$data['approvers']])->column();//用户邮箱数组
+        if($isReject)//如果审批的时批的是不通过，要加一个作者的邮箱。给作者发信说任务没通过！
+            $data['mail']['author'] = User::findOne($authorId)->email;
+        return $data;
+    }
+
+    /**
+     * 浏览个人任务时，点击任务名称时，是查看还是更新
+     */
+    public function getALinkTask()
+    {
+        if($this->type == $this::TASK_TYPE_MATERIAL||$this->type == $this::TASK_TYPE_MTR_APPROVER1||$this->type == $this::TASK_TYPE_MTR_APPROVER2)
+        {//说明是物料的ID
+            $mtrName = $this->modifyMaterial->mfr_part_number;
+            if(empty($this->modifyMaterial->mfr_part_number))
+                $mtrName = $this->modifyMaterial->part_name;
+            if($this->status==$this::STATUS_UNCOMMIT||$this->status==$this::STATUS_REJECTED)
+                return Html::a($this->name.'：'.$mtrName,['/modify-material/update','id'=>$this->type_id,'material'=>0]);
+            else
+                return Html::a($this->name.'：'.$mtrName, ['/modify-material/view','id'=>$this->type_id]);
+        }
+        else if($this->type == $this::TASK_TYPE_ECR1||$this->type == $this::TASK_TYPE_ECR2||
+            $this->type == $this::TASK_TYPE_ECR3||$this->type == $this::TASK_TYPE_ECR4)
+        {
+            if($this->status==$this::STATUS_UNCOMMIT||$this->status==$this::STATUS_REJECTED)
+                return Html::a($this->name.'：'.$this->ecr->serial_number,
+                    Url::toRoute('/ecr/update?id='.$this->type_id),[]);
+            else
+                return Html::a($this->name.'：'.$this->ecr->serial_number,
+                    Url::toRoute('/ecr/view?id='.$this->type_id),[]);
+        }
+        else if($this->type == $this::TASK_TYPE_ECN1||$this->type == $this::TASK_TYPE_ECN3||
+            $this->type == $this::TASK_TYPE_ECN2||$this->type == $this::TASK_TYPE_ECN4)
+        {
+            if($this->status==$this::STATUS_UNCOMMIT||$this->status==$this::STATUS_REJECTED)
+                return Html::a($this->name.'：'.$this->ecn->serial_number,
+                    Url::toRoute('/ecn/update?id='.$this->type_id),[]);
+            else
+                return Html::a($this->name.'：'.$this->ecn->serial_number,
+                    Url::toRoute('/ecn/view?id='.$this->type_id),[]);
+        }
+        else if($this->type == $this::TASK_TYPE_BOM_UPLOAD)
+        {
+            if($this->status == $this::STATUS_UNCOMMIT||$this->status == $this::STATUS_REJECTED)
+                return Html::a($this->name.'：'.$this->bomsParent->material->zc_part_number,
+                    Url::toRoute('/boms/upload-update?id='.$this->bomsParent->parent_id));
+            else
+                return Html::a($this->name.'：'.$this->bomsParent->material->zc_part_number,
+                    Url::toRoute('/boms/upload-view?id='.$this->bomsParent->parent_id),[]);
+        }
+        else if($this->type == $this::TASK_TYPE_PROJECT_FILE_UPLOAD)
+        {
+            if($this->status == $this::STATUS_UNCOMMIT||$this->status == $this::STATUS_REJECTED)
+                return Html::a($this->name.'：'.$this->projectProcess->name,
+                    Url::toRoute('/project-attachment/create?id='.$this->type_id));
+            else
+                return Html::a($this->name.'：'.$this->projectProcess->name,
+                    Url::toRoute('/project-attachment/view?id='.$this->type_id));
+        }
+        else if($this->type == $this::TASK_TYPE_MTR_FILE_UPLOAD)
+        {
+            if($this->status == $this::STATUS_UNCOMMIT||$this->status == $this::STATUS_REJECTED)
+                return Html::a($this->name.'：'.$this->materialAttachment->name,
+                    Url::toRoute('/projects/mtr-file-update?id='.$this->type_id));
+            else
+                return Html::a($this->name.'：'.$this->materialAttachment->name,
+                    Url::toRoute('/projects/mtr-file-view?id='.$this->type_id));
+        }
+        else if($this->type == $this::TASK_TYPE_QSM)
+        {
+            if($this->status == $this::STATUS_UNCOMMIT||$this->status == $this::STATUS_REJECTED)
+                return Html::a($this->name.'：'.$this->qsmAttachment->name,
+                    Url::toRoute('/quality-system-manage/upload-update?id='.$this->type_id));
+            else
+                return Html::a($this->name.'：'.$this->qsmAttachment->name,
+                    Url::toRoute('/quality-system-manage/upload-view?id='.$this->type_id));
+        }
+        else
+        {
+            echo '去Tasks::getAlinkTask()增加新任务的连接';die;
+        }
+    }
+
+    /*
+     * 处理任务通过
+     */
+    public function doPassTask(Tasks $mdlTask,UserTask $mdlUserTask)
+    {
+        $res = [];
+        switch ($mdlTask->type)
+        {
+            //修改、新建物料
+            case self::TASK_TYPE_MATERIAL:
+            case self::TASK_TYPE_MTR_APPROVER1:
+            case self::TASK_TYPE_MTR_APPROVER2:
+                $mdlMtr = ModifyMaterial::findOne($mdlTask->type_id);
+                $res = $mdlMtr->doPassTask($mdlTask);
+                break;
+            //BOM上传
+            case self::TASK_TYPE_BOM_UPLOAD:
+                $mdlBom = BomsParent::findOne($mdlTask->type_id);
+                $res = $mdlBom->doPassTask($mdlTask);
+                break;
+            ///ECR
+            case self::TASK_TYPE_ECR1 :
+            case self::TASK_TYPE_ECR2 :
+            case self::TASK_TYPE_ECR3 :
+            case self::TASK_TYPE_ECR4 :
+                $mdlEcr = Ecr::findOne($mdlTask->type_id);
+                $res = $mdlEcr->doPassTask($mdlTask);
+                break;
+            ///Ecn
+            case self::TASK_TYPE_ECN1:
+            case self::TASK_TYPE_ECN2:
+            case self::TASK_TYPE_ECN3:
+            case self::TASK_TYPE_ECN4:
+                $mdlEcn = Ecn::findOne($mdlTask->type_id);
+                $res = $mdlEcn->doPassTask($mdlTask);
+                break;
+            ///项目管理物料文件上传
+            case self::TASK_TYPE_MTR_FILE_UPLOAD:
+                $mdlMtr = MaterialAttachment::findOne($mdlTask->type_id);
+                $res = $mdlMtr->doPassTask($mdlTask,$mdlUserTask);
+                break;
+            case self::TASK_TYPE_QSM:
+                $mdlQsm = QsmAttachment::findOne($mdlTask->type_id);
+                $res = $mdlQsm->doPassTask($mdlTask,$mdlUserTask);
+
+                break;
+            default :
+                $res = ['status'=>false,'msg'=>'没有添加任务通过处理'];
+                break;
+        }
+        return $res;
+    }
+
+}

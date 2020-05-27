@@ -1,0 +1,718 @@
+<?php
+
+namespace frontend\models;
+
+use Yii;
+
+class ExtBomsParent extends BomsParent
+{
+    /**
+     * 得到使用者
+     */
+    public static function getParentByChild($idChild,$changeType,$id)
+    {
+        //得到ecn被退回或已提交的boms_parent,如果是退回标记aprStatus有值，是不允许选的
+        $tblc = Tasks::find()->where('tasks.status='.Tasks::STATUS_REJECTED.' or tasks.status='.Tasks::STATUS_COMMITED)
+            ->andWhere(['in','tasks.type',[Tasks::TASK_TYPE_ECN1,Tasks::TASK_TYPE_ECN2,Tasks::TASK_TYPE_ECN3,Tasks::TASK_TYPE_ECN4]])
+            ->leftJoin('ecn_change_set','ecn_change_set.ecn_id=tasks.type_id')
+            ->leftJoin('ecn_part_user','ecn_part_user.ecn_change_id=ecn_change_set.id')
+            ->leftJoin('boms_child','boms_child.id=ecn_part_user.bom_id')
+            ->select('boms_child.boms_parent_id as pid,tasks.status as aprStatus')->groupBy('pid');
+        if($id != 0)//说明是更新，这时是可以选自己的
+            $tblc->andWhere('tasks.type_id!='.$id);
+        //得到boms是否在审批//////为0，审批中的不可以选中
+        $tbla = self::find()->select('id,parent_id,max(parent_version) as maxVersion,min(status) as minStatus,tblc.aprStatus as aprStatus')
+            ->leftJoin(['tblc'=>$tblc],'tblc.pid = boms_parent.id')->groupBy('parent_id');
+        //得到使用者带ID的bom表
+        $tblb=self::find()->alias('pbom')->innerJoin('boms_child as cbom','cbom.boms_parent_id=pbom.id')
+            ->innerJoin(['tbla'=>$tbla],'tbla.parent_id=pbom.parent_id')
+            ->where(['cbom.child_id'=>$idChild,'cbom.bom_expire_date'=>self::EXPIRE_DATE_MAX]);
+        //echo $tblb->createCommand()->getRawSql();die;
+
+
+        //把表中的物料id变成智车料号
+        if($changeType == EcnChangeSet::CT_ALTGROUP)//替换二供的使用者，要有二三四供显示的;
+        {
+            $tbl = $tblb->innerJoin('materials as m0','m0.material_id=pbom.parent_id')
+                ->innerJoin('materials as m1','cbom.child_id=m1.material_id')
+                ->leftJoin('materials as m2','cbom.zc_part_number2_id=m2.material_id')
+                ->leftJoin('materials as m3','cbom.zc_part_number3_id=m3.material_id')
+                ->leftJoin('materials as m4','cbom.zc_part_number4_id=m4.material_id')
+                ->select('cbom.id as idBom,m0.zc_part_number as userZcPartNo,m0.description as userDesc,
+                    m1.zc_part_number as zcPartNo1,m2.zc_part_number as zcPartNo2,m3.zc_part_number as zcPartNo3,
+                    m4.zc_part_number as zcPartNo4,tbla.minStatus as minStatus,tbla.aprStatus as aprStatus');
+        }
+        else//其它四个
+        {
+            $tbl = $tblb->innerJoin('boms_parent as rpbom','rpbom.parent_version=tbla.maxVersion and rpbom.parent_id=tbla.parent_id')
+                ->innerJoin('materials as m1','m1.material_id=rpbom.real_material')
+                ->innerJoin('materials as m2','cbom.child_id=m2.material_id')
+
+                ->select('cbom.id as idBom,m1.zc_part_number as userZcPartNo,m1.description as userDesc,
+                            m2.zc_part_number as zcPartNo1,tbla.minStatus as minStatus,tbla.aprStatus as aprStatus');
+        }
+        return $tbl;
+    }
+
+    public function aaa()
+    {
+        $tbl1 = BomsParent::find()->alias('pbom')->where('pbom.parent_id = 3178')
+            ->leftJoin('boms_child as cbom','cbom.boms_parent_id = pbom.id')
+            ->leftJoin('materials as mtr1','mtr1.material_id=pbom.parent_id')
+            ->select('pbom.*,cbom.*')
+            ->asArray()->all();
+        var_dump($tbl1);
+    }
+
+////////////////////以下是创建ECN时，对bom的编辑/////////////////////////////////////
+    /**
+     * 当ECN提交的是删除类型，BOM表的改变
+     */
+    public static function saveEcnChangeRemove($id,$mdlChangeSet)
+    {
+        //找到选中的child_bom
+        $mdlChild = ExtBomsChild::findOne($id);
+        //上个版本减一天，生成一个新版本，记下生成的版本（到时退回时可直接删除）
+        $mdlBomParentNew = self::changeBomParent($mdlChild->extBomsParent->parent_id,$mdlChangeSet->ecn_id);
+        if(!$mdlBomParentNew)
+            return false;
+        //ecn提交时对boms_child的更改
+        //原来要被替换的料减一天
+        $mdlChild->bom_expire_date = self::EXPIRE_DATE_TEMPORARY;
+        if(!$mdlChild->save())
+            return false;
+        return true;
+    }
+
+    /**
+     * 当ECN提交的是增加类型，BOM表的改变
+     */
+    public static function saveEcnChangeAdd($id ,$mdlChangeSet)//ZinniaY   fiona_824@163.com
+    {
+        //找到选中的child_bom
+        $mdlChild = ExtBomsChild::findOne($id);
+        //看是不是PCB，如果是PCB,boms_parent的字段要升级
+        $mdlMaterial = Materials::findOne($mdlChild->child_id);
+        if($mdlChangeSet->partOrg->part_type == 1093)
+            $mdlBomParentNew = self::changeBomParent($mdlChild->extBomsParent->parent_id,$mdlChangeSet->ecn_id,$mdlChangeSet->original_material_id);
+        else
+        {//上个版本减一天，生成一个新版本，记下生成的版本（到时退回时可直接删除）
+            $mdlBomParentNew = self::changeBomParent($mdlChild->extBomsParent->parent_id,$mdlChangeSet->ecn_id);
+        }
+        if(!$mdlBomParentNew)
+            return false;
+        //ecn提交时对boms_child的更改
+        //要增加的物料
+        $mdlMaterial=Materials::findOne($mdlChangeSet->original_material_id);
+
+        $mdlChild->boms_parent_id = $mdlBomParentNew->id;
+        $mdlChild->child_id = $mdlChangeSet->original_material_id;
+        $mdlChild->qty = $mdlChangeSet->qty;
+        $mdlChild->ref_no = $mdlChangeSet->position;
+        $mdlChild->zc_part_number2_id = $mdlMaterial->manufacturer2_id;
+        $mdlChild->zc_part_number3_id = $mdlMaterial->manufacturer3_id;
+        $mdlChild->zc_part_number4_id = $mdlMaterial->manufacturer4_id;
+        if(!self::changeBomChild($mdlChild))
+            return false;
+        return true;
+    }
+
+    /*
+     * 当更换PCB时，找到对应的PCBA料号
+     */
+    public static function getPcbaByPcb($pcbPart)
+    {
+        $pcbPart = Materials::findOne($pcbPart)->zc_part_number;
+        $pcbaPart = 'P'.substr($pcbPart,1);
+        $mdlMaterial = Materials::findOne(['zc_part_number'=>$pcbaPart]);
+        if(empty($mdlMaterial))
+        {
+            var_dump('没有这个PCBA料'.$pcbaPart);die;
+        }
+        return $mdlMaterial->material_id;
+    }
+
+    /*
+     * pcba升级后的料号,最后一位加一后的物料id
+     */
+    public static function getUpgradePcba($real_material_id)
+    {
+        $oldRealMaterial = Materials::findOne($real_material_id)->zc_part_number;
+        $lastChar = substr($oldRealMaterial,-1);
+        if($lastChar == '9')
+            $strTemp =  'A';
+        else
+            $strTemp = chr(ord($lastChar)+1);
+        $mdlMaterial = Materials::findOne(['zc_part_number'=>substr($oldRealMaterial,0,-1).$strTemp]);
+        if(empty($mdlMaterial))
+        {
+            var_dump('没有这个PCBA料'.substr($oldRealMaterial,0,-1).$strTemp);die;
+        }
+        return $mdlMaterial->material_id;
+    }
+
+
+    /**
+     * ecn提交时对boms_parent的更改
+     * 功能：上个版本减一天，生成一个新版本，记下生成的版本（到时退回时可直接删除）
+     */                                                         //不为-1时说明是PCB
+    public static function changeBomParent($parent_id,$ecn_id,$real_material=-1)
+    {
+        //最大版本
+        $maxPversion = self::getBomHighestVersion($parent_id);
+        //得到该bom已经发布的最大版本
+        $mdlBomParentNew = $mdlParent = ExtBomsParent::findOne(['parent_id'=>$parent_id,
+            'parent_version'=>$maxPversion]);
+        //如果最大的版本是也没提交说明这个ECN之前有一个变更已经生成了新的BOM_parent
+        if($mdlBomParentNew->status == 0)
+        {
+            if(substr($mdlBomParentNew->real_material,-1,1) == '0')//如果更改的这个pcba尾号是0，说明是换过PCB的了，就不用换号了
+            {
+                return $mdlBomParentNew;
+            }
+            else if ($real_material!=-1)////如果改变BOM的pcb,就要升级
+            {
+                $mdlBomParentNew->real_material = ExtBomsParent::getPcbaByPcb($real_material);
+                if(!$mdlBomParentNew->save())
+                    return false;
+            }
+            return $mdlBomParentNew;
+        }
+
+        //上一个版本减一天
+        $mdlParent->pv_expire_date = self::EXPIRE_DATE_TEMPORARY;
+        if(!$mdlParent->save())
+            return false;
+
+        //加一个新版Bom
+
+        $mdlBomParentNew = new BomsParent();
+
+        if ($real_material!=-1)//如果改变BOM的pcb,就要升级
+            $mdlBomParentNew->real_material = self::getPcbaByPcb($real_material);
+        else if($mdlParent->material->part_type == 453)//如果选中的使用者是PCBA，
+        {
+            $mdlBomParentNew->real_material = ExtBomsParent::getUpgradePcba($mdlParent->real_material);
+        }
+        else
+            $mdlBomParentNew->real_material = $mdlParent->parent_id;
+
+
+        $mdlBomParentNew->parent_id=$mdlParent->parent_id;
+        $mdlBomParentNew->parent_version=$maxPversion+1;
+        $mdlBomParentNew->status=ExtBomsParent::STATUS_UNRELEASE;
+        $mdlBomParentNew->pv_effect_date=BomsParent::EXPIRE_DATE_TEMPORARY;
+        $mdlBomParentNew->pv_expire_date=BomsParent::EXPIRE_DATE_MAX;
+        $mdlBomParentNew->type=$mdlParent->type;
+        $mdlBomParentNew->creater_id=\Yii::$app->user->id;
+        $timeStp = time();
+        $mdlBomParentNew->created_at=$timeStp;
+        $mdlBomParentNew->updated_at=$timeStp;
+        if(!$mdlBomParentNew->save())
+            return false;
+        //记录下加的版本
+        $mdlBomidTmpNew = new EcnBomidTmp();
+        $mdlBomidTmpNew->bom_id = $mdlBomParentNew->id;
+        $mdlBomidTmpNew->ecn_id = $ecn_id;
+        if(!$mdlBomidTmpNew->save())
+            return false;
+        return $mdlBomParentNew;
+    }
+
+    /**
+     * ecn提交时对boms_child的更改
+     * 功能：上个版本减一天，生成一个新版本
+     */
+    public static function changeBomChild($mdlChild)
+    {
+        ///////增加一个要替代的bom
+        $mdlBomChildNew = new ExtBomsChild();
+        $mdlBomChildNew->boms_parent_id = $mdlChild->boms_parent_id;
+        $mdlBomChildNew->child_id = $mdlChild->child_id;
+        $mdlBomChildNew->bom_expire_date = self::EXPIRE_DATE_MAX;
+        $mdlBomChildNew->qty = $mdlChild->qty;
+        $mdlBomChildNew->ref_no = $mdlChild->ref_no;
+        $mdlBomChildNew->zc_part_number2_id = $mdlChild->zc_part_number2_id;
+        $mdlBomChildNew->zc_part_number3_id = $mdlChild->zc_part_number3_id;
+        $mdlBomChildNew->zc_part_number4_id = $mdlChild->zc_part_number4_id;
+        $timeStp = time();
+        $mdlBomChildNew->created_at = $timeStp;
+        $mdlBomChildNew->updated_at = $timeStp;
+        if(!$mdlBomChildNew->save())
+            return false;
+        return true;
+    }
+
+    /**
+     * 当ECN提交的是替换类型，BOM表的改变
+     * $id:boms_child的id
+     * $mdlChangeSet:变更集合的模型
+     */
+    public static function saveEcnChangeReplace($id,$mdlChangeSet)
+    {
+        //找到选中的child_bom
+        $mdlChild = ExtBomsChild::findOne($id);
+        //看是不是PCB，如果是PCB,boms_parent的字段要升级
+        $mdlMaterial = Materials::findOne($mdlChild->child_id);
+        if($mdlMaterial->part_type == 1093)
+            $mdlBomParentNew = self::changeBomParent($mdlChild->extBomsParent->parent_id,$mdlChangeSet->ecn_id,$mdlChangeSet->new_material_id);
+        else
+        {//上个版本减一天，生成一个新版本，记下生成的版本（到时退回时可直接删除）
+            $mdlBomParentNew = self::changeBomParent($mdlChild->extBomsParent->parent_id,$mdlChangeSet->ecn_id);
+        }
+        if(!$mdlBomParentNew)
+            return false;
+        //原来要被替换的料减一天
+        $mdlChild->bom_expire_date = self::EXPIRE_DATE_TEMPORARY;
+        if(!$mdlChild->save())
+            return false;
+        //ecn提交时对boms_child的更改
+        $mdlChild->boms_parent_id = $mdlBomParentNew->id;
+        $mdlChild->child_id = $mdlChangeSet->new_material_id;
+        if(!self::changeBomChild($mdlChild))
+            return false;
+        return true;
+    }
+
+    /**
+     * 当ECN提交的是数量调整类型，BOM表的改变
+     */
+    public static function saveEcnChangeAdjqty($id,$mdlChangeSet)
+    {
+        //找到选中的child_bom
+        $mdlChild = ExtBomsChild::findOne($id);
+        //上个版本减一天，生成一个新版本，记下生成的版本（到时退回时可直接删除）
+        $mdlBomParentNew = self::changeBomParent($mdlChild->extBomsParent->parent_id,$mdlChangeSet->ecn_id);
+        if(!$mdlBomParentNew)
+            return false;
+        //原来要被替换的料减一天
+        $mdlChild->bom_expire_date = self::EXPIRE_DATE_TEMPORARY;
+        if(!$mdlChild->save())
+            return false;
+        //ecn提交时对boms_child的更改
+        //计算完的数量
+        if($mdlChangeSet->adj_type == 0)//如果是减少
+            $finalQty = $mdlChild->qty - $mdlChangeSet->qty;
+        else//增加
+            $finalQty = $mdlChild->qty + $mdlChangeSet->qty;
+        //计算完的位置
+        if($mdlChangeSet->adj_type == 0)//如果是减少
+        {
+            $arrChangePos = explode(',',$mdlChangeSet->position);
+            $arrBomPos = explode(',',$mdlChild->ref_no);
+            foreach ($arrChangePos as $val)
+            {
+                $key = array_search($val,$arrBomPos);
+                if($key !== false)
+                    unset($arrBomPos[$key]);
+            }
+            $finalPos = implode(',',$arrBomPos);
+        }
+        else//增加
+            $finalPos = $mdlChild->ref_no.','.$mdlChangeSet->position;
+
+        $mdlChild->qty = $finalQty;
+        $mdlChild->ref_no = $finalPos;
+        $mdlChild->boms_parent_id = $mdlBomParentNew->id;
+        if(!self::changeBomChild($mdlChild))
+            return false;
+        return true;
+    }
+
+    /**
+     * 当ECN提交的是群组替换类型，BOM表的改变
+     */
+    public static function saveEcnChangeAltgroup($id,$mdlChangeSet,$key)
+    {
+        //找到选中的child_bom
+        $mdlChild = ExtBomsChild::findOne($id);
+        //上个版本减一天，生成一个新版本，记下生成的版本（到时退回时可直接删除）
+        $mdlBomParentNew = self::changeBomParent($mdlChild->extBomsParent->parent_id,$mdlChangeSet->ecn_id);
+        if(!$mdlBomParentNew)
+            return false;
+        //原来要被替换的料减一天
+        $mdlChild->bom_expire_date = self::EXPIRE_DATE_TEMPORARY;
+        if(!$mdlChild->save())
+            return false;
+        //ecn提交时对boms_child的更改
+        $mdlChild->boms_parent_id = $mdlBomParentNew->id;
+        //更改二三四供
+        $altgroupMfrNo = $_POST['Ecn']['mfr'][$key][$id];//更改的是哪个供应商
+        $altgroupMdfType = $_POST['Ecn']['mdf_mfr_type'][$key][$id];//更改类型：增删改
+        $altgroupMdfPartId = $_POST['Ecn']['mdf_part_no'][$key][$id];//要变成的料号id
+        //根据更改类型
+        switch ($altgroupMdfType)
+        {
+            case EcnAltgroup::GROUP_CHANGE_ADD:
+            case EcnAltgroup::GROUP_CHANGE_REPLACE:
+                if($altgroupMfrNo == 2)
+                    $mdlChild->zc_part_number2_id = $altgroupMdfPartId;
+                else if($altgroupMfrNo ==3)
+                    $mdlChild->zc_part_number3_id = $altgroupMdfPartId;
+                else if($altgroupMfrNo ==4)
+                    $mdlChild->zc_part_number4_id = $altgroupMdfPartId;
+                break;
+            case EcnAltgroup::GROUP_CHANGE_SUB:
+                if($altgroupMfrNo == 2)
+                    $mdlChild->zc_part_number2_id = NUll;
+                else if($altgroupMfrNo ==3)
+                    $mdlChild->zc_part_number3_id = NUll;
+                else if($altgroupMfrNo ==4)
+                    $mdlChild->zc_part_number4_id = NUll;
+                break;
+        }
+        if(!self::changeBomChild($mdlChild))
+            return false;
+        return true;
+    }
+
+    /**
+     * 这个BOM的最高版本的属性
+     */
+    public static function getBomHighestVersion($parent_id)
+    {
+        return self::find()->where(['parent_id'=>$parent_id])
+            ->select('max(parent_version) as p_version')->asArray()->one()['p_version'];
+
+    }
+
+    /**
+     * 输入boms_child的id，返回boms_parent的信息
+     */
+
+////////////////////以下是ECN任务被退回时，对bom的编辑/////////////////////////////////////
+    /**
+     * ecn被退回时，对bom的操作
+     * 操作就是把原来改了的还原。原来增加的删掉，
+     */
+    public static function rejectEcn($idEcn)
+    {
+        //把上一个的版本的child失效时间改为最大时间戳
+//        $arrDelBom = EcnChangeSet::find()->where(['ecn_change_set.ecn_id'=>$idEcn])->select('ecn_part_user.bom_id')
+//            ->innerJoin('ecn_part_user','ecn_part_user.ecn_change_id=ecn_change_set.id')->column();
+        if(BomsChild::updateAll(['bom_expire_date'=>BomsParent::EXPIRE_DATE_MAX],['bom_expire_date'=>self::EXPIRE_DATE_TEMPORARY])===false)
+            return false;
+        //删除新增的那些物料
+        $arrDelPbom = BomsParent::find()->select('real_material')->where(['status'=>BomsParent::STATUS_UNRELEASE])->column();
+        Materials::deleteAll(['in','material_id',$arrDelPbom]);
+        //把上一个的版本的parent失效时间改为最大时间戳
+//        $arrDelBom = EcnChangeSet::find()->innerJoin('ecn_part_user','ecn_part_user.ecn_change_id=ecn_change_set.id')
+//            ->innerJoin('boms_child','boms_child.id=ecn_part_user.bom_id')
+//            ->innerJoin('boms_parent','boms_parent.id=boms_child.boms_parent_id')
+//            ->where(['ecn_change_set.ecn_id'=>$idEcn])
+//            ->select('boms_parent.parent_id')
+//            ->column();
+//        $arrDelBom=BomsParent::find()->where(['in','parent_id',$arrDelBom])
+//            ->andWhere(['pv_expire_date'=>BomsParent::EXPIRE_DATE_TEMPORARY])
+//            ->select('id')->column();
+
+        if(BomsParent::updateAll(['pv_expire_date'=>BomsParent::EXPIRE_DATE_MAX], ['pv_expire_date'=>self::EXPIRE_DATE_TEMPORARY])===false)
+            return false;
+        //删掉增加的
+        $arrDelBom = EcnBomidTmp::find()->where(['ecn_id'=>$idEcn])->select('bom_id')->column();
+        if(EcnPbomAttachment::deleteAll(['ecn_id'=>$idEcn]) == false)
+            return false;
+        if(BomsChild::deleteAll(['in','id',$arrDelBom])===false)
+            return false;
+        if(BomsParent::deleteAll('pv_release_time is null')===false)
+            return false;
+        if(EcnBomidTmp::deleteAll(['ecn_id'=>$idEcn])===false)
+            return false;
+        return true;
+    }
+
+
+////////////////////以下是ECN任务已通过时，对bom的编辑/////////////////////////////////////
+
+    /**
+     * ecn任务通过时
+     */
+    public static function approveEcn($idEcn)
+    {
+        $timeStp = time();
+        //1把上一个的版本的child失效时间改为当前时间戳,除了增加这一项
+//        if(EcnChangeSet::findOne(['ecn_id'=>$idEcn])->type !=EcnChangeSet::CT_ADD)
+//        {
+//            $arrDelBom = EcnChangeSet::find()->where(['ecn_change_set.ecn_id'=>$idEcn])->select('ecn_part_user.bom_id,ecn_change_set.type')
+//                ->innerJoin('ecn_part_user','ecn_part_user.ecn_change_id=ecn_change_set.id')->column();
+        if(BomsChild::updateAll(['bom_expire_date'=>$timeStp],['bom_expire_date'=>self::EXPIRE_DATE_TEMPORARY])===false)
+            return false;
+//        }
+        //2把上一个的版本的parent失效时间改为当前时间戳
+//        $arrDelBom = EcnChangeSet::find()->innerJoin('ecn_part_user','ecn_part_user.ecn_change_id=ecn_change_set.id')
+//            ->innerJoin('boms_child','boms_child.id=ecn_part_user.bom_id')
+//            ->innerJoin('boms_parent','boms_parent.id=boms_child.boms_parent_id')
+//            ->where(['ecn_change_set.ecn_id'=>$idEcn])
+//            ->select('boms_parent.parent_id')
+//            ->column();
+//        $arrDelBom=BomsParent::find()->where(['in','parent_id',$arrDelBom])
+//            ->andWhere(['pv_expire_date'=>BomsParent::EXPIRE_DATE_TEMPORARY])
+//            ->select('id')->column();
+        if(BomsParent::updateAll(['pv_expire_date'=>$timeStp,'status'=>self::STATUS_FORBIDDEN],
+                ['pv_expire_date'=>self::EXPIRE_DATE_TEMPORARY])===false)
+            return false;
+        //3把新版本的状态改为发布//发布时间和影响时间改为当前时间。
+//        $arrDelBom = EcnBomidTmp::find()->where(['ecn_id'=>$idEcn])->select('bom_id')->column();
+        if(BomsParent::updateAll(['status'=>BomsParent::STATUS_RELEASE,'pv_release_time'=>$timeStp,'pv_effect_date'=>$timeStp],
+                'pv_release_time is null')===false)
+            return false;
+        return true;
+    }
+
+    /**
+     * 上传bom（excel表格）时，要新建一个bom
+     */
+    static public function saveBomForUpload()
+    {
+        //新建一个父BOM
+        $curTime = time();
+        $id = $_POST['ImportBomForm']['merId'];
+        $model = new BomsParent();
+        $model->parent_id = $id;
+        $model->real_material = $id;
+        $model->parent_version = 1;
+        $model->status = 0;
+        $model->pv_effect_date = BomsParent::EXPIRE_DATE_TEMPORARY;
+        $model->pv_expire_date = BomsParent::EXPIRE_DATE_MAX;
+        $model->type = 0;
+        $model->created_at = $curTime;
+        $model->updated_at = $curTime;
+        $model->creater_id = Yii::$app->getUser()->id;
+        if($model->save())
+            return $model->id;
+        return false;
+    }
+
+    public $val = 2;
+
+    /**
+     * 获得一个bom下的所有的part
+     *
+     *
+     * 备注：不能有level这个关键字，否则编辑保存时会有问题(行修改完，树会多出好多个空格)
+     */
+    static public function getBomsPart($pid)
+    {
+        //bom顶级
+        $pbom = ExtBomsParent::find()->alias('pbom')
+            ->leftJoin('materials as mtr1','pbom.parent_id=mtr1.material_id')
+            ->leftJoin('materials as mtr2','mtr1.manufacturer2_id = mtr2.material_id')
+            ->leftJoin('materials as mtr3','mtr1.manufacturer3_id = mtr3.material_id')
+            ->leftJoin('materials as mtr4','mtr1.manufacturer4_id = mtr4.material_id')
+            ->leftJoin('material_encode_rule as mer1','mer1.id = mtr1.manufacturer')
+            ->where(['pbom.parent_id'=>$pid,'pbom.parent_version'=>1])
+            //'`id`,2 as `lvl`'用这种方法实现不能增加没字段的一列
+            ->select(["`id`,0 as `lvl`,'' as qty,'' as ref_no" =>'pbom.id',
+                'purchase_level'=>'mtr1.purchase_level',
+                'description'=>'mtr1.description',
+                'unit'=>'mtr1.unit',
+                'pcb_footprint'=>'mtr1.pcb_footprint',
+                'zc_part_number'=>'mtr1.zc_part_number',
+                'mfr_part_number'=>'mtr1.mfr_part_number',
+                'manufacturer'=>'mer1.name',
+
+                'zc_part_number2'=>'mtr2.zc_part_number',
+                'mfr_part_number2'=>'mtr2.mfr_part_number',
+                'manufacturer2'=>'mtr2.manufacturer',
+
+                'zc_part_number3'=>'mtr3.zc_part_number',
+                'mfr_part_number3'=>'mtr3.mfr_part_number',
+                'manufacturer3'=>'mtr3.manufacturer',
+
+                'zc_part_number4'=>'mtr4.zc_part_number',
+                'mfr_part_number4'=>'mtr4.mfr_part_number',
+                'manufacturer4'=>'mtr4.manufacturer',
+            ])->asArray()->all();
+        //part顶级下面的件
+        $part = ExtBomsChild::find()->alias('part')
+            ->leftJoin('materials as mtr1','part.child_id=mtr1.material_id')
+            ->leftJoin('materials as mtr2','part.zc_part_number2_id = mtr2.material_id')
+            ->leftJoin('materials as mtr3','part.zc_part_number3_id = mtr3.material_id')
+            ->leftJoin('materials as mtr4','part.zc_part_number4_id = mtr4.material_id')
+            ->leftJoin('material_encode_rule as mer1','mer1.id = mtr1.manufacturer')
+            ->leftJoin('material_encode_rule as mer2','mer2.id = mtr2.manufacturer')
+            ->leftJoin('material_encode_rule as mer3','mer3.id = mtr3.manufacturer')
+            ->leftJoin('material_encode_rule as mer4','mer4.id = mtr4.manufacturer')
+            ->where(['part.boms_parent_id'=>$pbom[0]['id']])
+            //'`id`,2 as `lvl`'用这种方法实现不能增加没字段的一列
+            ->select(["`id`,1 as `lvl`" =>'part.id',
+                'mtrid'=>'mtr1.material_id',
+                'qty'=>'part.qty',
+                'ref_no'=>'part.ref_no',
+                'purchase_level'=>'mtr1.purchase_level',
+                'description'=>'mtr1.description',
+                'unit'=>'mtr1.unit',
+                'pcb_footprint'=>'mtr1.pcb_footprint',
+                'zc_part_number'=>'mtr1.zc_part_number',
+                'mfr_part_number'=>'mtr1.mfr_part_number',
+                'manufacturer'=>'mer1.name',
+
+                'zc_part_number2'=>'mtr2.zc_part_number',
+                'mfr_part_number2'=>'mtr2.mfr_part_number',
+                'manufacturer2'=>'mer2.name',
+
+                'zc_part_number3'=>'mtr3.zc_part_number',
+                'mfr_part_number3'=>'mtr3.mfr_part_number',
+                'manufacturer3'=>'mer3.name',
+
+                'zc_part_number4'=>'mtr4.zc_part_number',
+                'mfr_part_number4'=>'mtr4.mfr_part_number',
+                'manufacturer4'=>'mer4.name',
+            ])->asArray()->all();
+        $pbom[0]['children'] = $part;
+        return $pbom;
+    }
+
+    /*
+     * 得到下一级的id和料号
+     */
+    static public function getChildParts($id)
+    {
+        return BomsChild::find()->where(['boms_child.boms_parent_id'=>$id])
+            ->leftJoin('materials','materials.material_id=boms_child.child_id')
+            ->select('materials.zc_part_number as zc_part_number,boms_child.child_id as id')
+            ->indexBy('id')->column();
+    }
+
+    /*
+     * 得到下一级的所有信息
+     */
+    public function getChildPartsInfo()
+    {
+        return BomsChild::find()->leftJoin('boms_parent','boms_child.boms_parent_id=boms_parent.id')
+            ->leftJoin('materials','materials.material_id=boms_child.child_id')
+            ->leftJoin('materials as mfr2','mfr2.material_id=boms_child.zc_part_number2_id')
+            ->where(['boms_parent.parent_id'=>$this->parent_id])
+            ->andWhere('boms_child.bom_expire_date='.self::EXPIRE_DATE_MAX)->select('boms_child.*,materials.zc_part_number as zc_part_number,mfr2.zc_part_number as zc_part_number2_id')
+            ->indexBy('zc_part_number')->asArray()->all();
+            //->createCommand()->getRawSql();
+    }
+
+    /*
+     * 得到bom的part的位置和数量
+     */
+    static public function getPosQty($id)
+    {
+        return BomsChild::find()->where(['child_id'=>$id])->select('qty,ref_no')->asArray()->one();
+    }
+
+    /*
+     * 生成上级物料并联接上
+     */
+    public function generateUpBomMtr($ecnId,$needNew,$mtrPcb)
+    {
+        $newCmtr = $this->generaUpgradeMtr($needNew,$mtrPcb);//生成Cbom的物料
+        if(!$newCmtr)
+            return -1;
+        $allCboms = BomsChild::find()->where(['child_id'=>$this->real_material])->all();
+        if(empty($allCboms))
+            return true;
+        foreach ($allCboms as $cbom){
+            //找到用到这个料的最新版本
+            $mdlPbom = self::findOne($cbom->boms_parent_id);
+            $maxVersion = self::getBomHighestVersion($mdlPbom->parent_id);
+            $mdlParent = ExtBomsParent::findOne(['parent_id'=>$mdlPbom->parent_id,'parent_version'=>$maxVersion]);
+            $newPmtr=$mdlParent->generaUpgradeMtr(true,'');//生成Pbom的物料
+            //升级$cbom和mdlparent
+            if(!$this->generatePCbomByNewMtr($cbom,$mdlParent,$newCmtr->material_id,$newPmtr->material_id,$ecnId ))
+                return -2;
+
+            if(!$mdlParent->generateUpBomMtr($ecnId,false,''))
+                return -3;
+        }
+        return $newCmtr;
+    }
+
+    /*
+     * 根据新生成的物料来生成新的boms_parent和boms_child
+     */
+    public function generatePCbomByNewMtr(BomsChild $cbom,BomsParent $pbom,$child_id,$real_material,$ecnId)
+    {
+        $time = time();
+        //创建新的Boms_parent
+        $newPbom = new BomsParent();
+        $newPbom->parent_id = $pbom->parent_id;
+        $newPbom->parent_version = intval($pbom->parent_version)+1;
+        $newPbom->status = self::STATUS_UNRELEASE;
+        $newPbom->pv_effect_date = self::EXPIRE_DATE_TEMPORARY;
+        $newPbom->pv_expire_date = self::EXPIRE_DATE_MAX;
+        $newPbom->type = self::BOM_TYPE_TRIAL;
+        $newPbom->creater_id = Yii::$app->user->id;
+        $newPbom->created_at = $newPbom->updated_at = $time;
+        $newPbom->real_material = $real_material;
+        if(!$newPbom->save())
+            return false;
+        $pbom->pv_expire_date = self::EXPIRE_DATE_TEMPORARY;
+        if(!$pbom->save())
+            return false;
+
+        //把新的boms_child代替旧的，
+        $newCbom = new BomsChild();
+        $newCbom->load(['BomsChild'=>$cbom->getAttributes()]);
+        $newCbom->child_id = $child_id;
+        $newCbom->boms_parent_id = $newPbom->id;
+        $newCbom->created_at = $newCbom->updated_at = $time;
+        if(!$newCbom->save())
+            return false;
+        //删掉旧的
+        $cbom->bom_expire_date = self::EXPIRE_DATE_TEMPORARY;
+        if(!$cbom->save())
+            return false;
+        $newEcnBomidTemp = new EcnBomidTmp();
+        $newEcnBomidTemp->ecn_id = $ecnId;
+        $newEcnBomidTemp->bom_id = $newCbom->id;
+        if(!$newEcnBomidTemp->save())
+            return false;
+
+        return true;
+    }
+
+    /*
+     * 生成升级料号
+     */
+    private function generaUpgradeMtr($needNew,$mtrPcb)
+    {
+        $oldMtr = Materials::findOne($this->real_material);
+        if($needNew == true)
+        {
+            $newMtr = new Materials();
+            $newMtr->load(['Materials'=>$oldMtr->getAttributes()]);//复制到的
+            if(empty($mtrPcb))//如果为空正常，不为空说明有pcb更换，新建的物料要按pcb的料号建
+                $newMtr->zc_part_number = $this->upgradeZcPartNo($oldMtr->zc_part_number);
+            else{
+                $mtrPcb[0]='P';
+                $newMtr->zc_part_number = $mtrPcb;
+            }
+            if(!$newMtr->save())
+                return false;
+            return $newMtr;
+        }
+
+        return Materials::findOne(['zc_part_number'=>$this->upgradeZcPartNo($oldMtr->zc_part_number)]);
+    }
+
+    /*
+     * 生成智车料号
+     */
+    public function upgradeZcPartNo($oldZcPartNo)
+    {
+        $len = strlen($oldZcPartNo);
+        for ($i=$len-1;$i>1;$i--){
+            $num = intval(substr($oldZcPartNo,$i));
+            //正常是最后一位加1就行，如果是需要进位的就要向前截
+            if((++$num)/(pow(10,($len-$i))) == 1)
+                continue;
+            else{
+                break;
+            }
+        }
+        return substr($oldZcPartNo,0,$i).$num;
+    }
+
+///////////////////////关联子查询/////////////////////////////////
+    public function getMaterial()
+    {
+        return $this->hasOne(Materials::className(),['material_id' => 'parent_id']);
+    }
+
+}

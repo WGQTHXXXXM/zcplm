@@ -1,0 +1,5 @@
+<?php
+echo $this->render('/modify-material/view', [
+    'model' => $model,
+    'dataAttachment'=>$dataAttachment,
+]) ?>

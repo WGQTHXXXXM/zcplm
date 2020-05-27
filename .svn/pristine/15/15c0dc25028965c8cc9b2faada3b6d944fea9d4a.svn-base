@@ -1,0 +1,399 @@
+<?php
+
+namespace frontend\controllers;
+
+use Yii;
+use frontend\models\Boms;
+use yii\data\ActiveDataProvider;
+use yii\web\Controller;
+use yii\web\NotFoundHttpException;
+use yii\filters\VerbFilter;
+use yii\helpers\Json;
+use common\components\CommonFunc;
+
+/**
+ * BomsController implements the CRUD actions for Boms model.
+ */
+class BomsController extends Controller
+{
+    /**
+     * @inheritdoc
+     */
+    public function behaviors()
+    {
+        return [
+            'verbs' => [
+                'class' => VerbFilter::className(),
+                'actions' => [
+                    'delete' => ['POST'],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Lists all Boms models.
+     * @return mixed
+     */
+    public function actionIndex($id)
+    {
+        if (Yii::$app->request->isAjax) {
+            //分层查找法
+            $data = $this->levelSearch($id, true);
+
+            $count = count($data);
+            //如果没有子项，则显示物料信息
+            if ($count == 1) {
+             //   return $this->redirect(['/materials/view', 'id' => $data[0]['child_id']]);
+            }
+
+            //遍历多维数组，并在数组项之间建立父子关系，生成树型结构数组
+            $data = $this->generateTreeArray($data, $data[0]['parent_id']);
+
+
+            //   array_push($data, $rows[0], $rows[1], $rows[2], $rows[3], $rows[4], $rows[5], $rows[6]);
+            /*   $data = array(
+                   array("id"=>"21","parent_id"=>"80","child_id"=>"81","parent_version"=>"2","child_version"=>"4",
+                       "zc_part_number"=>"A","purchase_level"=>"","description"=>"AAA","pcb_footprint"=>"Ap","qty"=>"1",
+                       "ref_no"=>"Ar","mfr_part_number"=>"Amf","manufacturer"=>"Ama","zc_part_number2"=>"A2","zc_part_number3"=>"A3","zc_part_number4"=>"A4","hasChild"=>"1"),
+
+                   array("id"=>"11","parent_id"=>"81","child_id"=>"85","parent_version"=>"2","child_version"=>"1",
+                       "zc_part_number"=>"B","purchase_level"=>"","description"=>"BBB","pcb_footprint"=>"Bp","qty"=>"5",
+                       "ref_no"=>"Br","mfr_part_number"=>"Bmf","manufacturer"=>"Bma","zc_part_number2"=>"B2","zc_part_number3"=>"B3","zc_part_number4"=>"B4","hasChild"=>"0"),
+
+                   array("id"=>"13","parent_id"=>"81","child_id"=>"87","parent_version"=>"1","child_version"=>"1",
+                       "zc_part_number"=>"C","purchase_level"=>"","description"=>"CCC","pcb_footprint"=>"Cp","qty"=>"7",
+                       "ref_no"=>"Cr","mfr_part_number"=>"Cmf","manufacturer"=>"Cma","zc_part_number2"=>"C2","zc_part_number3"=>"C3","zc_part_number4"=>"C4","hasChild"=>"0"),
+               );
+
+               $row = array("id"=>"17","parent_id"=>"87","child_id"=>"100","parent_version"=>"1","child_version"=>"1",
+                   "zc_part_number"=>"D","purchase_level"=>"P","description"=>"DDD","pcb_footprint"=>"Dp","qty"=>"3",
+                   "ref_no"=>"Dr","mfr_part_number"=>"Dmf","manufacturer"=>"Dma","zc_part_number2"=>"D2","zc_part_number3"=>"D3","zc_part_number4"=>"D4","hasChild"=>"0");
+
+            //   $data[] = $row;
+               foreach ($data as $v) {
+                   if ($v['hasChild']) {
+                       $data[] = $row;
+                   }
+               }*/
+
+
+            return Json::encode($data);
+        }
+
+        /*   $dataProvider = new ActiveDataProvider([
+               'query' => Boms::find(),
+           ]);*/
+        $model = $this->findModel($id);
+        //如果该id对应的bom版本状态是未发布，则有可能并不是该bom版本的实际状态，重新搜索所有状态并按状态降序排序，将排在最前的指定给$model
+        if ($model->status == Boms::STATUS_UNRELEASE) {
+            $boms = Boms::find()->where(['child_id' => $model->child_id, 'child_version' => $model->child_version])->orderBy('status DESC')->all();
+            $model = $boms[0];
+        }
+        //获得选定料号的版本列表
+        $versionList = Boms::find()->select(['child_version'])->distinct()->where(['child_id' => $model->child_id])->orderBy('child_version')->asArray()->all();
+
+        return $this->render('index', [
+            //   'dataProvider' => $dataProvider,
+            'model' => $model,
+            'versionList' => Json::encode($versionList),
+            //   'parent_id' => $parent_id,
+            //   'parent_version' => $parent_version,
+        ]);
+    }
+
+    /**
+     * Displays a single Boms model.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionView($id)
+    {
+        return $this->render('view', [
+            'model' => $this->findModel($id),
+        ]);
+    }
+
+    /**
+     * Creates a new Boms model.
+     * If creation is successful, the browser will be redirected to the 'view' page.
+     * @return mixed
+     */
+    public function actionCreate()
+    {
+        $model = new Boms();
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            return $this->redirect(['view', 'id' => $model->id]);
+        } else {
+            return $this->render('create', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Updates an existing Boms model.
+     * If update is successful, the browser will be redirected to the 'view' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionUpdate($id)
+    {
+        $model = $this->findModel($id);
+
+        if ($model->load(Yii::$app->request->post()) && $model->save()) {
+            return $this->redirect(['view', 'id' => $model->id]);
+        } else {
+            return $this->render('update', [
+                'model' => $model,
+            ]);
+        }
+    }
+
+    /**
+     * Deletes an existing Boms model.
+     * If deletion is successful, the browser will be redirected to the 'index' page.
+     * @param integer $id
+     * @return mixed
+     */
+    public function actionDelete($id)
+    {
+        $this->findModel($id)->delete();
+
+        return $this->redirect(['index']);
+    }
+
+    /**
+     * Finds the Boms model based on its primary key value.
+     * If the model is not found, a 404 HTTP exception will be thrown.
+     * @param integer $id
+     * @return Boms the loaded model
+     * @throws NotFoundHttpException if the model cannot be found
+     */
+    protected function findModel($id)
+    {
+        if (($model = Boms::findOne($id)) !== null) {
+            return $model;
+        } else {
+            throw new NotFoundHttpException('The requested page does not exist.');
+        }
+    }
+
+    public function levelSearch($id, $multiLevel = true, $returnData = true)
+    {
+        //分层查找法
+        //1.创建临时表tmp_boms1和临时表tmp_boms2
+        $sql = "CREATE TEMPORARY TABLE `tmp_boms1` ( 
+                      `rownum` int(11) NOT NULL AUTO_INCREMENT COMMENT '当前行号', 
+                      `id` int(11) NOT NULL, 
+                      `level` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '当前层次', 
+                      `parent_id` int(11) unsigned DEFAULT NULL COMMENT '父项编码id', 
+                      `parent_version` int(10) unsigned DEFAULT NULL COMMENT '父版本', 
+                      `child_id` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '子项编码id', 
+                      `child_version` int(10) unsigned DEFAULT NULL COMMENT '子版本', 
+                      `status` tinyint(3) NOT NULL DEFAULT '0' COMMENT '状态', 
+                      `release_time` int(11) DEFAULT NULL COMMENT '发布时间', 
+                      `effect_date` int(11) DEFAULT NULL COMMENT '生效日期', 
+                      `expire_date` bigint(11) DEFAULT NULL COMMENT '失效日期', 
+                      `qty` int(11) DEFAULT NULL COMMENT '数量', 
+                      `ref_no` varchar(255) DEFAULT NULL COMMENT '位号', 
+                      `zc_part_number2_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（2）id', 
+                      `zc_part_number3_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（3）id', 
+                      `zc_part_number4_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（4）id', 
+                      `type` tinyint(3) unsigned NOT NULL DEFAULT '0' COMMENT 'BOM分类', 
+                      `creater_id` int(11) unsigned DEFAULT NULL COMMENT '创建者id', 
+                      `created_at` int(11) DEFAULT NULL COMMENT '创建时间', 
+                      `updated_at` int(11) DEFAULT NULL COMMENT '更新时间', 
+                      PRIMARY KEY (`rownum`) 
+                    ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
+                    
+                    CREATE TEMPORARY TABLE `tmp_boms2` ( 
+                      `id` int(11) NOT NULL AUTO_INCREMENT, 
+                      `level` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '当前层次', 
+                      `parent_id` int(11) unsigned DEFAULT NULL COMMENT '父项编码id', 
+                      `parent_version` int(10) unsigned DEFAULT NULL COMMENT '父版本', 
+                      `child_id` int(11) unsigned NOT NULL DEFAULT '0' COMMENT '子项编码id', 
+                      `child_version` int(10) unsigned DEFAULT NULL COMMENT '子版本', 
+                      `status` tinyint(3) NOT NULL DEFAULT '0' COMMENT '状态', 
+                      `release_time` int(11) DEFAULT NULL COMMENT '发布时间', 
+                      `effect_date` int(11) DEFAULT NULL COMMENT '生效日期', 
+                      `expire_date` bigint(11) DEFAULT NULL COMMENT '失效日期', 
+                      `qty` int(11) DEFAULT NULL COMMENT '数量', 
+                      `ref_no` varchar(255) DEFAULT NULL COMMENT '位号', 
+                      `zc_part_number2_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（2）id', 
+                      `zc_part_number3_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（3）id', 
+                      `zc_part_number4_id` int(11) unsigned DEFAULT NULL COMMENT '智车料号（4）id', 
+                      `type` tinyint(3) unsigned NOT NULL DEFAULT '0' COMMENT 'BOM分类', 
+                      `creater_id` int(11) unsigned DEFAULT NULL COMMENT '创建者id', 
+                      `created_at` int(11) DEFAULT NULL COMMENT '创建时间', 
+                      `updated_at` int(11) DEFAULT NULL COMMENT '更新时间', 
+                      PRIMARY KEY (`id`) 
+                    ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8";
+        Yii::$app->db->createCommand($sql)->execute();
+        //2.将要查找的物料放到表tmp_boms1中
+        $level = 0;
+        $sql = "INSERT INTO tmp_boms1 (level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,
+                    zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at) 
+                    SELECT {$level},id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,
+                    zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at 
+                    FROM boms WHERE id={$id}";
+        Yii::$app->db->createCommand($sql)->execute();
+        $RowCount1 = 0;
+        $RowCount2 = Yii::$app->db->createCommand('SELECT COUNT(*) FROM tmp_boms1')->queryScalar(); //表tmp_boms1的总行数
+        while ($RowCount2 > $RowCount1) {
+            $level = $level + 1;
+            if ($level > 1 && !$multiLevel) break; //如果只查找最近一层子级，当$level>1时退出查找
+            //3.将表tmp_boms1中所有行号大于RowCount1物料的下一层子项放到表tmp_boms2中
+            for ($i=$RowCount1+1; $i<=$RowCount2; $i++) {
+                /*   $sql = "SELECT * FROM tmp_boms1";
+                   $data = Yii::$app->db->createCommand($sql)->queryAll();*/
+                $sql = "SELECT * FROM tmp_boms1 WHERE rownum={$i}";
+                $row = Yii::$app->db->createCommand($sql)->queryOne();
+
+                $sql = "INSERT INTO tmp_boms2 (level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at) 
+                    SELECT {$level},id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at 
+                    FROM boms WHERE parent_id={$row['child_id']} AND expire_date>={$row['expire_date']} AND parent_version<={$row['child_version']}";
+                Yii::$app->db->createCommand($sql)->execute();
+
+                /*   $sql = "SELECT * FROM tmp_boms2";
+                   $data = Yii::$app->db->createCommand($sql)->queryAll();*/
+            }
+            //4.从表tmp_boms2中将所有物料移到表tmp_boms1末尾
+            $sql = "INSERT INTO tmp_boms1 (level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at)
+                    SELECT level,id,parent_id,parent_version,child_id,child_version,status,release_time,effect_date,expire_date,qty,
+                    ref_no,zc_part_number2_id,zc_part_number3_id,zc_part_number4_id,type,creater_id,created_at,updated_at
+                    FROM tmp_boms2 ORDER BY id ASC";
+            Yii::$app->db->createCommand($sql)->execute();
+            //5.清空临时表tmp_boms2
+            Yii::$app->db->createCommand('DELETE FROM tmp_boms2')->execute();
+
+            $RowCount1 = $RowCount2;
+            $RowCount2 = Yii::$app->db->createCommand('SELECT COUNT(*) FROM tmp_boms1')->queryScalar(); //表tmp_boms1的总行数
+        }
+
+        //6.表tmp_boms1中存在的是原物料和查找结果
+        if ($returnData) {
+            $sql = "SELECT b.id, b.level, b.parent_id, b.child_id, b.parent_version, b.child_version, b.status, b.release_time, b.effect_date, b.expire_date, b.qty, b.ref_no, 
+                 m1.zc_part_number, m1.purchase_level, m1.part_name, m1.description, m1.unit, m1.pcb_footprint, m1.mfr_part_number, mer1.name AS manufacturer, 
+                 m2.zc_part_number AS zc_part_number2, m2.mfr_part_number AS mfr_part_number2, mer2.name AS manufacturer2, 
+                 m3.zc_part_number AS zc_part_number3, m3.mfr_part_number AS mfr_part_number3, mer3.name AS manufacturer3, 
+                 m4.zc_part_number AS zc_part_number4, m4.mfr_part_number AS mfr_part_number4, mer4.name AS manufacturer4 
+                 FROM tmp_boms1 AS b 
+                 LEFT JOIN materials AS m1 ON b.child_id=m1.material_id LEFT JOIN material_encode_rule AS mer1 ON mer1.id=m1.manufacturer 
+                 LEFT JOIN materials AS m2 ON b.zc_part_number2_id=m2.material_id LEFT JOIN material_encode_rule AS mer2 ON mer2.id=m2.manufacturer 
+                 LEFT JOIN materials AS m3 ON b.zc_part_number3_id=m3.material_id LEFT JOIN material_encode_rule AS mer3 ON mer3.id=m3.manufacturer 
+                 LEFT JOIN materials AS m4 ON b.zc_part_number4_id=m4.material_id LEFT JOIN material_encode_rule AS mer4 ON mer4.id=m4.manufacturer";
+            $data = Yii::$app->db->createCommand($sql)->queryAll();
+
+            return $data;
+        }
+    }
+
+    public function generateTreeArray($arr, $parent = null)
+    {
+        $pages = Array();
+        foreach ($arr as $page)
+        {
+            if ($page['parent_id'] == $parent)
+            {
+                $page['children'] = isset($page['children']) ? $page['children'] : $this->generateTreeArray($arr, $page['child_id']);
+                $pages[] = $page;
+            }
+        }
+        return $pages;
+    }
+
+    public function generateListArray($tree, $children = 'children')
+    {
+        $listArr = array();
+        foreach ($tree as $w) {
+            if (isset($w[$children])) {
+                $t = $w[$children];
+                unset($w[$children]);
+                $listArr[] = $w;
+                if (is_array($t)) $listArr = array_merge($listArr, $this->generateListArray($t, $children));
+            } else {
+                $listArr[] = $w;
+            }
+        }
+        return $listArr;
+    }
+
+    /**
+     * @DESC 数据导出
+     * @param integer $id
+     * @param bool $multiLevel
+     */
+    public function actionExportData($id, $multiLevel = true)
+    {
+        //分层查找法
+        $this->levelSearch($id, $multiLevel, false);
+        $sql = "SELECT m1.zc_part_number, b.level, m1.purchase_level, b.parent_id, b.child_id, m1.part_name, m1.description, m1.pcb_footprint, b.qty, m1.unit, b.ref_no, 
+                 m1.mfr_part_number, mer1.name AS manufacturer, 
+                 m2.zc_part_number AS zc_part_number2, m2.mfr_part_number AS mfr_part_number2, mer2.name AS manufacturer2, 
+                 m3.zc_part_number AS zc_part_number3, m3.mfr_part_number AS mfr_part_number3, mer3.name AS manufacturer3, 
+                 m4.zc_part_number AS zc_part_number4, m4.mfr_part_number AS mfr_part_number4, mer4.name AS manufacturer4 
+                 FROM tmp_boms1 AS b 
+                 LEFT JOIN materials AS m1 ON b.child_id=m1.material_id LEFT JOIN material_encode_rule AS mer1 ON mer1.id=m1.manufacturer 
+                 LEFT JOIN materials AS m2 ON b.zc_part_number2_id=m2.material_id LEFT JOIN material_encode_rule AS mer2 ON mer2.id=m2.manufacturer 
+                 LEFT JOIN materials AS m3 ON b.zc_part_number3_id=m3.material_id LEFT JOIN material_encode_rule AS mer3 ON mer3.id=m3.manufacturer 
+                 LEFT JOIN materials AS m4 ON b.zc_part_number4_id=m4.material_id LEFT JOIN material_encode_rule AS mer4 ON mer4.id=m4.manufacturer";
+        $data = Yii::$app->db->createCommand($sql)->queryAll();
+
+        //遍历多维数组，并在数组项之间建立父子关系，生成树型结构数组
+        $data = $this->generateTreeArray($data, $data[0]['parent_id']);
+        //遍历树型结构数组，生成列表结构数组
+        $data = $this->generateListArray($data, 'children');
+        //删除parent_id, child_id字段
+        foreach($data as $key=>$val)
+        {
+            unset($data[$key]['parent_id']);
+            unset($data[$key]['child_id']);
+        }
+
+        if ($data) { // 数据处理
+            // 给每一行记录添加Item序号
+            for ($item=0; $item<count($data); $item++) {
+                array_unshift($data[$item], $item+1);
+            }
+        }
+        $header = [
+            ['header'=>"Item", 'width'=>7],
+            ['header'=>Yii::t('material', 'Zhiche Part Number'), 'width'=>20],
+            ['header'=>Yii::t('bom', 'Assy Level'), 'width'=>8],
+            ['header'=>Yii::t('material', 'Purchase Level'), 'width'=>8],
+         //   ['header'=>"ID", 'width'=>7],
+         //   ['header'=>"Parent ID", 'width'=>7],
+         //   ['header'=>"Child ID", 'width'=>7],
+            ['header'=>Yii::t('material', 'Part Name'), 'width'=>20],
+            ['header'=>Yii::t('material', 'Description'), 'width'=>35],
+            ['header'=>Yii::t('material', 'Pcb Footprint'), 'width'=>15],
+            ['header'=>Yii::t('bom', 'Qty'), 'width'=>7],
+            ['header'=>Yii::t('material', 'Unit'), 'width'=>7],
+            ['header'=>Yii::t('bom', 'Reference No.'), 'width'=>25],
+            ['header'=>Yii::t('material', 'Manufacturer Part Number'), 'width'=>20],
+            ['header'=>Yii::t('material', 'Manufacturer'), 'width'=>15],
+            ['header'=>Yii::t('material', 'Second Zhiche Part Number'), 'width'=>20],
+            ['header'=>Yii::t('material', 'Second Manufacturer Part Number'), 'width'=>20],
+            ['header'=>Yii::t('bom', 'Second Manufacturer'), 'width'=>15],
+            ['header'=>Yii::t('material', 'third Zhiche Part Number'), 'width'=>20],
+            ['header'=>Yii::t('material', 'third Manufacturer Part Number'), 'width'=>20],
+            ['header'=>Yii::t('bom', 'Third Manufacturer'), 'width'=>15],
+            ['header'=>Yii::t('material', 'fourth Zhiche Part Number'), 'width'=>20],
+            ['header'=>Yii::t('material', 'fourth Manufacturer Part Number'), 'width'=>20],
+            ['header'=>Yii::t('bom', 'Fourth Manufacturer'), 'width'=>15],
+        ]; //导出excel的表头
+        CommonFunc::exportData($data, $header, "Sheet1", "Export Bom");
+    }
+
+    public function actionGetBomId($child_id, $version)
+    {
+        $status = 1;
+        $bomArray = Boms::find()->where(['child_id' => $child_id, 'child_version' => $version])->orderBy('status DESC')->asArray()->all();
+        return json_encode(['status'=>$status,'message'=>'','data'=>$bomArray[0]['id']]);
+    }
+}

@@ -1,0 +1,25 @@
+<?php
+
+namespace frontend\models;
+
+class ProjectProcess extends \kartik\tree\models\Tree
+{
+    /**
+     * @inheritdoc
+     */
+    public static function tableName()
+    {
+        return 'project_process';
+    }
+
+    public function rules()
+    {
+        $rules = parent::rules();
+        return $rules;
+    }
+
+    public function getFile()
+    {
+        return $this->hasMany(FileAttachments::className(), ['file_id' => 'id']);
+    }
+}
